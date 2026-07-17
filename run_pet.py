@@ -73,7 +73,7 @@ def main() -> int:
     if asset.resolve() == DEMO_ANIMATION_DIR.resolve() and not (asset / "manifest.json").is_file():
         ensure_demo_character(asset)
     if args.check:
-        print(json.dumps(animation_report(asset), ensure_ascii=False, indent=2))
+        print(json.dumps(animation_report(asset), ensure_ascii=True, indent=2))
         return 0
 
     run_desktop_pet(

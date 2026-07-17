@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import unittest
@@ -64,6 +65,7 @@ class PixelAnimationTests(unittest.TestCase):
             [sys.executable, "-B", "run_pet.py", "--check"],
             cwd=PROJECT_ROOT,
             capture_output=True,
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
             text=True,
             timeout=30,
             check=False,
