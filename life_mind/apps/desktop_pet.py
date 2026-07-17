@@ -14,7 +14,16 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import Image, ImageTk
 
-from life_mind.ai import AIConfig, OllamaClient
+from life_mind.ai import (
+    AIConfig,
+    APISecretStore,
+    LocalAIError,
+    PROVIDER_PRESETS,
+    credential_id,
+    create_ai_client,
+    endpoint_is_remote,
+    provider_preset,
+)
 from life_mind.behavior import BehaviorDecision, BehaviorStateMachine
 from life_mind.apps.private_room import PrivateRoomWindow
 from life_mind.apps.system_tray import SystemTrayController
@@ -334,7 +343,8 @@ class NativeDesktopPet:
         self.activity_clip_name = self.current_clip_name
         self.config = PetConfig.load(self.config_path)
         self.rng = random.Random()
-        self.ai_client = OllamaClient()
+        self.ai_secret_store = APISecretStore()
+        self.ai_client = create_ai_client(AIConfig.load(), self.ai_secret_store)
         self.mind = (
             MindEngine(
                 path=mind_path,
@@ -427,7 +437,7 @@ class NativeDesktopPet:
         self.menu.add_command(label="和她说句话…", command=self.open_chat)
         self.menu.add_command(label="管理关于我的本地记忆…", command=self.open_memory_manager)
         self.menu.add_command(label="打开她的房间…", command=self.open_private_room)
-        self.menu.add_command(label="本地 AI 设置…", command=self.open_ai_settings)
+        self.menu.add_command(label="AI 模型设置…", command=self.open_ai_settings)
         if self.developer_mode:
             self.menu.add_separator()
             self.menu.add_command(label="开发者：状态摘要", command=self.show_state)
@@ -860,7 +870,22 @@ class NativeDesktopPet:
             status.configure(text=f"{self.character_name}正在想…")
 
             def work() -> None:
-                response = self.mind.process_user_text(text)
+                try:
+                    response = self.mind.process_user_text(text)
+                except Exception:
+                    def recover() -> None:
+                        if not dialog.winfo_exists():
+                            return
+                        entry.configure(state="normal")
+                        submit_button.configure(state="normal")
+                        status.configure(text="这次处理没有完成，请稍后再试。")
+                        entry.focus_force()
+
+                    try:
+                        self.root.after(0, recover)
+                    except tk.TclError:
+                        pass
+                    return
 
                 def deliver() -> None:
                     if dialog.winfo_exists():
@@ -884,7 +909,10 @@ class NativeDesktopPet:
                         animate=response.mind_clip not in persistent_clips,
                     )
 
-                self.root.after(0, deliver)
+                try:
+                    self.root.after(0, deliver)
+                except tk.TclError:
+                    pass
 
             threading.Thread(target=work, daemon=True).start()
 
@@ -1295,7 +1323,7 @@ class NativeDesktopPet:
             replace_text(
                 ai_audit,
                 json.dumps(
-                    snapshot.get("last_ai_audit") or {"status": "还没有本地 AI 审计记录"},
+                    snapshot.get("last_ai_audit") or {"status": "还没有 AI 模型审计记录"},
                     ensure_ascii=False,
                     indent=2,
                 ),
@@ -1352,43 +1380,206 @@ class NativeDesktopPet:
 
     def open_ai_settings(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title(f"{self.character_name}的本地 AI")
+        dialog.title(f"{self.character_name}的 AI 模型")
         dialog.attributes("-topmost", True)
         dialog.resizable(False, False)
         config = self.ai_client.config
-
+        presets_by_label = {preset.label: preset for preset in PROVIDER_PRESETS}
+        selected_preset = provider_preset(config.provider)
         enabled_var = tk.BooleanVar(value=config.enabled)
+        provider_var = tk.StringVar(value=selected_preset.label)
         endpoint_var = tk.StringVar(value=config.endpoint)
         model_var = tk.StringVar(value=config.model)
-        tk.Checkbutton(dialog, text="启用本地 Ollama", variable=enabled_var).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 6)
+        api_key_var = tk.StringVar()
+        share_memory_var = tk.BooleanVar(value=config.share_memory)
+        tk.Checkbutton(dialog, text="启用 AI 对话增强", variable=enabled_var).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(14, 7)
         )
-        tk.Label(dialog, text="接口地址").grid(row=1, column=0, sticky="e", padx=(12, 6), pady=5)
-        tk.Entry(dialog, textvariable=endpoint_var, width=38).grid(row=1, column=1, padx=(0, 12), pady=5)
-        tk.Label(dialog, text="模型名称").grid(row=2, column=0, sticky="e", padx=(12, 6), pady=5)
-        tk.Entry(dialog, textvariable=model_var, width=38).grid(row=2, column=1, padx=(0, 12), pady=5)
-        status = tk.Label(dialog, text="留空模型名时自动使用已安装的第一个模型。", fg="#6B5A45")
-        status.grid(row=3, column=0, columnspan=2, padx=12, pady=6)
+        tk.Label(dialog, text="模型服务").grid(row=1, column=0, sticky="e", padx=(14, 7), pady=5)
+        provider_box = ttk.Combobox(
+            dialog,
+            textvariable=provider_var,
+            values=[preset.label for preset in PROVIDER_PRESETS],
+            width=42,
+            state="readonly",
+        )
+        provider_box.grid(row=1, column=1, padx=(0, 14), pady=5)
+        tk.Label(dialog, text="模型名称").grid(row=2, column=0, sticky="e", padx=(14, 7), pady=5)
+        tk.Entry(dialog, textvariable=model_var, width=45).grid(row=2, column=1, padx=(0, 14), pady=5)
+        tk.Label(dialog, text="API 密钥").grid(row=3, column=0, sticky="e", padx=(14, 7), pady=5)
+        tk.Entry(dialog, textvariable=api_key_var, width=45, show="●").grid(
+            row=3, column=1, padx=(0, 14), pady=5
+        )
+        key_hint = tk.Label(
+            dialog, text="", fg="#6B5A45", justify="left", anchor="w", wraplength=360
+        )
+        key_hint.grid(row=4, column=1, sticky="w", padx=(0, 14), pady=(0, 4))
+        tk.Label(dialog, text="接口地址").grid(row=5, column=0, sticky="e", padx=(14, 7), pady=5)
+        endpoint_entry = tk.Entry(dialog, textvariable=endpoint_var, width=45)
+        endpoint_entry.grid(row=5, column=1, padx=(0, 14), pady=5)
+        tk.Checkbutton(
+            dialog,
+            text="允许把已获准使用的长期记忆发给当前模型",
+            variable=share_memory_var,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
+        privacy = tk.Label(dialog, text="", fg="#8A633C", justify="left", wraplength=470)
+        privacy.grid(row=7, column=0, columnspan=2, padx=14, pady=(2, 5))
+        status = tk.Label(
+            dialog,
+            text="密钥只保存在系统凭据库，也可以使用厂商环境变量。",
+            fg="#6B5A45",
+            justify="left",
+            wraplength=470,
+        )
+        status.grid(row=8, column=0, columnspan=2, padx=14, pady=6)
+
+        current_provider_id = [config.provider]
+
+        def update_key_hint() -> None:
+            preset = presets_by_label[provider_var.get()]
+            environment = preset.api_key_env or "无需密钥"
+            try:
+                stored = bool(
+                    self.ai_secret_store.get(
+                        credential_id(preset.provider_id, endpoint_var.get())
+                    )
+                )
+            except LocalAIError:
+                stored = False
+            credential_hint = (
+                "系统凭据库已有密钥；留空可继续使用。"
+                if stored
+                else f"环境变量：{environment}"
+            )
+            key_hint.configure(
+                text=credential_hint + (f"\n{preset.note}" if preset.note else "")
+            )
+
+        def update_privacy(*_args: object) -> None:
+            remote = endpoint_is_remote(endpoint_var.get())
+            privacy.configure(
+                text=(
+                    "☁ 云端接口：会发送当前消息、最近对话和语气状态摘要；长期记忆由上方选项决定。"
+                    if remote
+                    else "⌂ 本机接口：对话不会离开这台电脑。"
+                )
+            )
+
+        def update_provider_fields(_event: tk.Event | None = None) -> None:
+            preset = presets_by_label[provider_var.get()]
+            if _event is not None:
+                endpoint_var.set(preset.endpoint)
+                model_var.set(preset.default_model)
+            else:
+                if not endpoint_var.get().strip():
+                    endpoint_var.set(preset.endpoint)
+                if not model_var.get().strip():
+                    model_var.set(preset.default_model)
+            if preset.remote and preset.provider_id != current_provider_id[0]:
+                share_memory_var.set(False)
+            current_provider_id[0] = preset.provider_id
+            update_key_hint()
+            update_privacy()
+
+        provider_box.bind("<<ComboboxSelected>>", update_provider_fields)
+        endpoint_entry.bind("<FocusOut>", lambda _event: update_key_hint())
+        endpoint_var.trace_add("write", update_privacy)
+        update_provider_fields()
 
         def save_and_check() -> None:
+            preset = presets_by_label[provider_var.get()]
+            endpoint = endpoint_var.get().strip().rstrip("/") or preset.endpoint
+            if not endpoint.startswith(("http://", "https://")):
+                status.configure(text="⚠ 接口地址必须以 http:// 或 https:// 开头。")
+                return
+            same_destination = config.provider == preset.provider_id and config.endpoint == endpoint
+            remote = endpoint_is_remote(endpoint)
+            remote_consent = bool(
+                same_destination
+                and config.remote_consent
+                and config.consent_endpoint.rstrip("/") == endpoint
+            )
+            consent_endpoint = endpoint if remote_consent else ""
+            if enabled_var.get() and remote and not remote_consent:
+                remote_consent = messagebox.askyesno(
+                    "允许连接云端模型？",
+                    "云端模型会收到你当前发送的消息、最近对话和用于调节语气的简短内部状态摘要。\n"
+                    "只有勾选长期记忆共享时，获准用于模型上下文的记忆才会一并发送。\n\n"
+                    "是否允许 LIFE-Mind 向这个接口发送这些数据？",
+                    parent=dialog,
+                )
+                if not remote_consent:
+                    status.configure(text="未保存：你没有授权向该云端接口发送对话。")
+                    return
+                consent_endpoint = endpoint
+            if not remote:
+                remote_consent = False
+                consent_endpoint = ""
             new_config = AIConfig(
                 enabled=enabled_var.get(),
-                endpoint=endpoint_var.get().strip().rstrip("/") or "http://127.0.0.1:11434",
+                endpoint=endpoint,
                 model=model_var.get().strip(),
                 timeout_seconds=config.timeout_seconds,
+                provider=preset.provider_id,
+                api_key_env=preset.api_key_env,
+                remote_consent=remote_consent,
+                share_memory=share_memory_var.get(),
+                consent_endpoint=consent_endpoint,
             )
-            new_config.save()
-            self.ai_client.config = new_config
-            status.configure(text="正在检测本地模型…")
+            try:
+                if api_key_var.get().strip():
+                    self.ai_secret_store.set(
+                        credential_id(preset.provider_id, endpoint), api_key_var.get()
+                    )
+            except LocalAIError as error:
+                status.configure(text=f"⚠ {error}")
+                return
+            try:
+                new_config.save()
+            except OSError:
+                status.configure(text="⚠ AI 配置未能写入本地设置目录。")
+                return
+            self.ai_client = create_ai_client(new_config, self.ai_secret_store)
+            self.mind.ai_responder = self.ai_client
+            api_key_var.set("")
+            status.configure(text="正在检测模型接口…")
+            client = self.ai_client
 
             def work() -> None:
-                ok, detail = self.ai_client.status()
-                self.root.after(0, lambda: status.configure(text=("✓ " if ok else "⚠ ") + detail))
+                try:
+                    ok, detail = client.status()
+                except Exception:
+                    ok, detail = False, "检测过程发生未预期错误，请检查接口与依赖。"
+
+                def deliver_status() -> None:
+                    if dialog.winfo_exists():
+                        status.configure(text=("✓ " if ok else "⚠ ") + detail)
+
+                try:
+                    self.root.after(0, deliver_status)
+                except tk.TclError:
+                    pass
 
             threading.Thread(target=work, daemon=True).start()
 
+        def clear_key() -> None:
+            preset = presets_by_label[provider_var.get()]
+            try:
+                self.ai_secret_store.delete(
+                    credential_id(preset.provider_id, endpoint_var.get())
+                )
+            except LocalAIError as error:
+                status.configure(text=f"⚠ {error}")
+                return
+            api_key_var.set("")
+            status.configure(text="已清除系统凭据库中的密钥；环境变量若存在仍会优先生效。")
+            update_provider_fields()
+
         tk.Button(dialog, text="保存并检测", command=save_and_check).grid(
-            row=4, column=0, columnspan=2, pady=(4, 12)
+            row=9, column=0, pady=(4, 14), padx=(14, 5), sticky="e"
+        )
+        tk.Button(dialog, text="清除当前密钥", command=clear_key).grid(
+            row=9, column=1, pady=(4, 14), padx=(5, 14), sticky="w"
         )
 
     def show_state(self) -> None:
@@ -1410,7 +1601,8 @@ class NativeDesktopPet:
                     f"累计互动：{state.interaction_count} 次",
                     f"专注 / 勿扰：{'已开启' if self.config.do_not_disturb else '未开启'}",
                     f"系统托盘：{'运行中' if self.tray and self.tray.running else '不可用'}",
-                    f"本地 AI：{'已启用' if ai_config.enabled else '已关闭'}",
+                    f"AI 模型：{'已启用' if ai_config.enabled else '已关闭'}",
+                    f"服务：{provider_preset(ai_config.provider).label}",
                     f"模型：{ai_config.model or '自动选择'}",
                     "\n这些状态保存在本地，重启后仍会延续。",
                 )

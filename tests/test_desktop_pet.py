@@ -420,7 +420,8 @@ class MindTests(unittest.TestCase):
 
     def test_ai_reply_uses_local_memory_and_marks_source(self) -> None:
         engine = MindEngine(self.path, ai_responder=FakeAI())
-        response = engine.process_user_text("我叫小林。")
+        engine.process_user_text("我叫小林。")
+        response = engine.process_user_text("我偏爱安静的音乐。")
         self.assertTrue(response.ai_generated)
         self.assertIn("小林", response.text)
         self.assertIn("fake-local-model", response.ai_status)
