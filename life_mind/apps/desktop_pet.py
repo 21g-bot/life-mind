@@ -23,6 +23,7 @@ from life_mind.ai import (
     credential_id,
     create_ai_client,
     endpoint_is_remote,
+    endpoint_transport_allowed,
     provider_preset,
 )
 from life_mind.behavior import BehaviorDecision, BehaviorStateMachine
@@ -112,17 +113,19 @@ class PetConfig:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return cls()
+        if not isinstance(payload, dict):
+            return cls()
         scale = payload.get("scale", 2)
-        if scale not in ALLOWED_SCALES:
+        if type(scale) is not int or scale not in ALLOWED_SCALES:
             scale = 2
         x, y = payload.get("x"), payload.get("y")
         return cls(
-            x=x if isinstance(x, int) else None,
-            y=y if isinstance(y, int) else None,
+            x=x if type(x) is int else None,
+            y=y if type(y) is int else None,
             scale=scale,
-            topmost=bool(payload.get("topmost", True)),
-            swaying=bool(payload.get("swaying", True)),
-            do_not_disturb=bool(payload.get("do_not_disturb", False)),
+            topmost=_safe_config_bool(payload.get("topmost"), True),
+            swaying=_safe_config_bool(payload.get("swaying"), True),
+            do_not_disturb=_safe_config_bool(payload.get("do_not_disturb"), False),
         )
 
     def save(self, path: Path = CONFIG_PATH) -> None:
@@ -130,6 +133,20 @@ class PetConfig:
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(path)
+
+
+def _safe_config_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().casefold()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+    return default
 
 
 @dataclass(frozen=True, slots=True)
@@ -1531,6 +1548,11 @@ class NativeDesktopPet:
             endpoint = endpoint_var.get().strip().rstrip("/") or preset.endpoint
             if not endpoint.startswith(("http://", "https://")):
                 status.configure(text="⚠ 接口地址必须以 http:// 或 https:// 开头。")
+                return
+            if not endpoint_transport_allowed(endpoint):
+                status.configure(
+                    text="⚠ 云端或局域网模型必须使用 HTTPS；HTTP 只允许本机回环地址。"
+                )
                 return
             same_destination = config.provider == preset.provider_id and config.endpoint == endpoint
             remote = endpoint_is_remote(endpoint)

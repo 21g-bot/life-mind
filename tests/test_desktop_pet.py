@@ -317,6 +317,28 @@ class ConfigTests(unittest.TestCase):
         self.path.write_text('{"scale": 99}', encoding="utf-8")
         self.assertEqual(PetConfig.load(self.path).scale, 2)
 
+    def test_valid_json_with_wrong_shape_falls_back(self) -> None:
+        self.path.write_text('["not", "an", "object"]', encoding="utf-8")
+        self.assertEqual(PetConfig.load(self.path), PetConfig())
+
+    def test_config_values_are_parsed_without_truthy_string_or_bool_int_leaks(self) -> None:
+        self.path.write_text(
+            '{"x": true, "y": 240, "scale": true, "topmost": "false", '
+            '"swaying": "yes", "do_not_disturb": "invalid"}',
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            PetConfig.load(self.path),
+            PetConfig(
+                x=None,
+                y=240,
+                scale=2,
+                topmost=False,
+                swaying=True,
+                do_not_disturb=False,
+            ),
+        )
+
 
 class ReactionTests(unittest.TestCase):
     def test_do_not_disturb_blocks_only_unsolicited_autonomy(self) -> None:

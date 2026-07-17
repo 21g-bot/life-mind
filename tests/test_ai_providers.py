@@ -17,6 +17,7 @@ from life_mind.ai import (
     credential_id,
     create_ai_client,
     endpoint_is_remote,
+    endpoint_transport_allowed,
     parse_json_text,
 )
 from life_mind.mind import MindEngine
@@ -133,6 +134,37 @@ class AIConfigAndPresetTests(unittest.TestCase):
             credential_id("custom-openai", "https://one.example/v1"),
             credential_id("custom-openai", "https://two.example/v1"),
         )
+
+    def test_credential_identity_preserves_case_sensitive_paths(self) -> None:
+        self.assertEqual(
+            credential_id("custom-openai", "HTTPS://API.EXAMPLE/v1/"),
+            credential_id("custom-openai", "https://api.example/v1"),
+        )
+        self.assertNotEqual(
+            credential_id("custom-openai", "https://api.example/TenantA/v1"),
+            credential_id("custom-openai", "https://api.example/tenanta/v1"),
+        )
+
+    def test_plain_http_is_limited_to_loopback_endpoints(self) -> None:
+        self.assertTrue(endpoint_transport_allowed("http://127.0.0.1:11434"))
+        self.assertTrue(endpoint_transport_allowed("http://[::1]:11434"))
+        self.assertFalse(endpoint_transport_allowed("http://192.168.1.20:8000/v1"))
+        self.assertFalse(endpoint_transport_allowed("http://api.example/v1"))
+        self.assertTrue(endpoint_transport_allowed("https://api.example/v1"))
+
+        client = OpenAICompatibleClient(
+            AIConfig(
+                provider="custom-openai",
+                endpoint="http://api.example/v1",
+                model="test-model",
+                remote_consent=True,
+                consent_endpoint="http://api.example/v1",
+            ),
+            FakeSecretStore(),
+        )
+        ok, detail = client.status()
+        self.assertFalse(ok)
+        self.assertIn("https://", detail)
 
     def test_factory_clients_conform_to_model_adapter_port(self) -> None:
         clients = (
