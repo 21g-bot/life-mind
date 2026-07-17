@@ -156,6 +156,24 @@ def _draw_demo_frame(clip: str, index: int) -> Image.Image:
     return image.resize(CANVAS, Image.Resampling.NEAREST)
 
 
+def render_demo_icon(size: int = 256) -> Image.Image:
+    """Render the public seed mascot as a square transparent release icon."""
+
+    if size < 16:
+        raise ValueError("icon size must be at least 16 pixels")
+    source = _draw_demo_frame("idle", 0)
+    bounds = source.getchannel("A").getbbox()
+    subject = source.crop(bounds) if bounds else source
+    margin = max(2, size // 16)
+    subject.thumbnail((size - 2 * margin, size - 2 * margin), Image.Resampling.NEAREST)
+    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    icon.alpha_composite(
+        subject,
+        ((size - subject.width) // 2, (size - subject.height) // 2),
+    )
+    return icon
+
+
 def ensure_demo_character(output: Path, *, force: bool = False) -> Path:
     """Create the public demo pack, refusing to overwrite an unrelated character."""
 
@@ -203,4 +221,11 @@ def ensure_demo_character(output: Path, *, force: bool = False) -> Path:
     return output
 
 
-__all__ = ("CANVAS", "CLIPS", "DEMO_IDENTITY", "FRAME_COUNT", "ensure_demo_character")
+__all__ = (
+    "CANVAS",
+    "CLIPS",
+    "DEMO_IDENTITY",
+    "FRAME_COUNT",
+    "ensure_demo_character",
+    "render_demo_icon",
+)

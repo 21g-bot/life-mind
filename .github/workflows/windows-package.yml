@@ -1,0 +1,74 @@
+name: windows-package
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - run: python -m pip install -r requirements-build.txt
+      - run: python -B tools/build_windows_release.py
+      - shell: pwsh
+        run: |
+          $version = (& python -c "from life_mind import __version__; print(__version__)").Trim()
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version v$version"
+          }
+          python -B tools/verify_windows_release.py `
+            "dist/release/LIFE-Mind-v$version-windows-x64.zip" `
+            "dist/release/LIFE-Mind-v$version-windows-x64.sha256" `
+            --run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: life-mind-windows
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: life-mind-windows
+          path: dist/release
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (& python -c "from life_mind import __version__; print(__version__)").Trim()
+          $notes = "docs/releases/v$version.md"
+          if (-not (Test-Path -LiteralPath $notes)) {
+            throw "Missing release notes: $notes"
+          }
+          $assets = Get-ChildItem -LiteralPath "dist/release" -File
+          gh release create $env:GITHUB_REF_NAME `
+            --verify-tag `
+            --title "LIFE-Mind v$version（Windows 预览版）" `
+            --notes-file $notes `
+            $assets.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
