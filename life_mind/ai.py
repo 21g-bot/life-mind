@@ -16,7 +16,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 
 DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LIFE-Mind"
@@ -135,9 +135,34 @@ def provider_preset(provider_id: str) -> ProviderPreset:
 def credential_id(provider_id: str, endpoint: str) -> str:
     """Bind a vault entry to both provider and destination to prevent key reuse leaks."""
 
-    normalized = str(endpoint).strip().rstrip("/").casefold()
+    normalized = _credential_endpoint_identity(endpoint)
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
     return f"{provider_id}:{digest}"
+
+
+def _credential_endpoint_identity(endpoint: str) -> str:
+    """Normalize only URL components whose comparison is case-insensitive.
+
+    URL paths can be case-sensitive.  Folding the whole endpoint would therefore
+    let two distinct tenants or gateways share a credential-store entry.
+    """
+
+    raw = str(endpoint).strip()
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        return raw.rstrip("/")
+    if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        return raw.rstrip("/")
+    scheme = parsed.scheme.casefold()
+    host = parsed.hostname.casefold()
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = host if port is None else f"{host}:{port}"
+    return urlunsplit(
+        (scheme, netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment)
+    )
 
 
 def endpoint_is_remote(endpoint: str) -> bool:
@@ -149,6 +174,19 @@ def endpoint_is_remote(endpoint: str) -> bool:
     if parsed.scheme not in {"http", "https"} or not host:
         return True
     return host not in {"localhost", "127.0.0.1", "::1"}
+
+
+def endpoint_transport_allowed(endpoint: str) -> bool:
+    """Allow HTTPS everywhere and plain HTTP only on the local loopback host."""
+
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+    except ValueError:
+        return False
+    if not host or parsed.scheme not in {"http", "https"}:
+        return False
+    return parsed.scheme == "https" or not endpoint_is_remote(endpoint)
 
 
 def _safe_bool(value: object, default: bool) -> bool:
@@ -529,6 +567,8 @@ def _request_json(
         raise LocalAIError("模型接口地址无效") from error
     if parsed_endpoint.scheme not in {"http", "https"} or not endpoint_host:
         raise LocalAIError("模型接口只允许使用 http:// 或 https:// 地址")
+    if not endpoint_transport_allowed(config.endpoint):
+        raise LocalAIError("远程模型接口必须使用 https://；http:// 只允许本机回环地址")
     if parsed_endpoint.username or parsed_endpoint.password:
         raise LocalAIError("模型接口地址不能嵌入用户名或密钥")
     if parsed_endpoint.query or parsed_endpoint.fragment:
@@ -929,6 +969,7 @@ __all__ = (
     "create_ai_client",
     "detect_prompt_injection",
     "endpoint_is_remote",
+    "endpoint_transport_allowed",
     "guard_model_expression",
     "parse_generation_payload",
     "parse_json_text",
