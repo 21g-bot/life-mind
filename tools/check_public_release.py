@@ -16,6 +16,7 @@ PUBLIC_DIRS = (
     "examples",
     "schemas",
     "simulations",
+    "packaging",
     ".github",
 )
 PUBLIC_ROOT_FILES = {
@@ -28,6 +29,7 @@ PUBLIC_ROOT_FILES = {
     "SECURITY.md",
     "pyproject.toml",
     "requirements-dev.txt",
+    "requirements-build.txt",
     "requirements.txt",
     "run_pet.py",
     "start_pet.bat",

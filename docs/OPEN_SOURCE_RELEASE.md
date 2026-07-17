@@ -16,6 +16,10 @@
 | 私人动作库生成/稳定化脚本 | `tools/build_pixel_animation_pack.py`、`tools/stabilize_animation_pack.py` | 否 |
 | 本地依赖与缓存 | `.deps/`、`.cache/`、`.venv/` | 否 |
 
+Windows 便携包由 GitHub Actions 在干净的 Windows/Python 3.12 环境构建，只收录冻结后的
+程序、`LICENSE`、`NOTICE` 和 `README.md`。公开演示动作会在首次运行时生成，私人角色和
+用户数据不会被打入 ZIP。
+
 当前本机的缓存、素材和依赖合计超过 1 GB，不能直接执行不检查的 `git add -f .`。
 
 ## 发布前步骤
@@ -74,3 +78,24 @@ python -B tools/check_public_release.py
 python -B tools/check_markdown_links.py
 git status
 ```
+
+## Windows 发行版与标签
+
+`windows-package.yml` 会在 PR 和 `main` 上构建便携 ZIP，执行冻结版 `--release-check`，检查压缩包
+路径、Windows PE 文件和 SHA256。只有推送与代码版本一致的 `v*` 标签，才会创建 GitHub
+Release。
+
+发布前必须先确认 PR 上的 `tests` 与 `windows-package` 都通过，然后创建带说明的标签：
+
+```powershell
+git switch main
+git pull --ff-only
+git tag -a v0.1.0 -m "LIFE-Mind v0.1.0"
+git push origin v0.1.0
+```
+
+标签工作流会读取 `docs/releases/v0.1.0.md`，上传 ZIP 和 `.sha256`。发布后再下载一次资产，
+核对校验值和实际启动结果。不要手工上传本机 `dist/`、私人动作库或 `%LOCALAPPDATA%` 数据。
+
+当前 EXE 未使用商业代码签名证书，因此文档必须保留 SmartScreen“未知发布者”和 SHA256
+核验说明。预览版也不能替代 8 小时稳定性与真实体验者盲测这两项正式 MVP 人工闸门。

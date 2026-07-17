@@ -18,6 +18,7 @@ from life_mind.apps.desktop_pet import (
     GifAnimation,
     NativeDesktopPet,
     PetConfig,
+    RuntimePaths,
     SEATED_ACTIVITY_CLIPS,
     activity_transition_clips,
     animation_report,
@@ -28,12 +29,14 @@ from life_mind.apps.desktop_pet import (
     make_soft_transition_frames,
     next_frame_cursor,
     resolved_clip_duration,
+    resolve_runtime_paths,
 )
 from life_mind.demo_character import (
     CLIPS as DEMO_CLIPS,
     DEMO_IDENTITY,
     FRAME_COUNT as DEMO_FRAME_COUNT,
     ensure_demo_character,
+    render_demo_icon,
 )
 from life_mind.apps.system_tray import SystemTrayController, make_tray_icon
 from life_mind.mind import MindEngine
@@ -53,6 +56,7 @@ class PixelAnimationTests(unittest.TestCase):
     def test_internal_panels_require_explicit_developer_mode(self) -> None:
         self.assertFalse(parse_args([]).developer_mode)
         self.assertTrue(parse_args(["--developer-mode"]).developer_mode)
+        self.assertTrue(parse_args(["--release-check"]).release_check)
         pet = object.__new__(NativeDesktopPet)
         pet.developer_mode = False
         with self.assertRaises(PermissionError):
@@ -73,6 +77,44 @@ class PixelAnimationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"style": "refined-pixel-art"', result.stdout)
+
+    def test_frozen_runtime_uses_external_character_and_writable_demo_paths(self) -> None:
+        source_root = PROJECT_ROOT / "synthetic-source"
+        module_file = source_root / "life_mind" / "apps" / "desktop_pet.py"
+        executable = PROJECT_ROOT / "synthetic-dist" / "LIFE-Mind.exe"
+        config_dir = PROJECT_ROOT / "synthetic-profile" / "LIFE-Mind"
+
+        source_paths = resolve_runtime_paths(
+            frozen=False,
+            module_file=module_file,
+            executable=executable,
+            config_dir=config_dir,
+        )
+        frozen_paths = resolve_runtime_paths(
+            frozen=True,
+            module_file=module_file,
+            executable=executable,
+            config_dir=config_dir,
+        )
+
+        self.assertIsInstance(frozen_paths, RuntimePaths)
+        self.assertEqual(source_paths.root, source_root.resolve())
+        self.assertEqual(
+            source_paths.private_animation_dir,
+            source_root.resolve() / "assets" / "character" / "pixel_pet_v2",
+        )
+        self.assertEqual(source_paths.demo_animation_dir, source_root.resolve() / ".cache" / "demo-character")
+        self.assertEqual(frozen_paths.root, executable.resolve().parent)
+        self.assertEqual(frozen_paths.private_animation_dir, executable.resolve().parent / "character")
+        self.assertEqual(frozen_paths.demo_animation_dir, config_dir / "demo-character")
+
+    def test_public_demo_icon_is_transparent_and_contains_the_seed_mascot(self) -> None:
+        icon = render_demo_icon(256)
+        self.assertEqual(icon.mode, "RGBA")
+        self.assertEqual(icon.size, (256, 256))
+        self.assertIsNotNone(icon.getchannel("A").getbbox())
+        with self.assertRaises(ValueError):
+            render_demo_icon(8)
 
     def test_soft_transition_never_overlays_two_sprites(self) -> None:
         image_module = __import__("PIL.Image", fromlist=["Image"])

@@ -47,6 +47,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="精细像素动作库目录（必须包含当前角色 manifest.json）",
     )
     parser.add_argument("--check", action="store_true", help="只检查素材，不打开窗口")
+    parser.add_argument(
+        "--release-check",
+        action="store_true",
+        help="检查冻结版素材、系统托盘和凭据库依赖，不打开窗口",
+    )
     parser.add_argument("--reset-config", action="store_true", help="清除窗口位置与大小设置")
     parser.add_argument("--config-path", type=Path, default=CONFIG_PATH, help="窗口设置文件路径")
     parser.add_argument("--db-path", type=Path, help="心智数据库路径；留空使用用户本地数据库")
@@ -72,8 +77,29 @@ def main() -> int:
     asset = args.asset
     if asset.resolve() == DEMO_ANIMATION_DIR.resolve() and not (asset / "manifest.json").is_file():
         ensure_demo_character(asset)
-    if args.check:
-        print(json.dumps(animation_report(asset), ensure_ascii=True, indent=2))
+    if args.check or args.release_check:
+        report = animation_report(asset)
+        if args.release_check:
+            from life_mind.ai import APISecretStore
+            from life_mind.apps.system_tray import PYSTRAY_AVAILABLE
+
+            try:
+                if not PYSTRAY_AVAILABLE:
+                    raise RuntimeError("系统托盘组件不可用")
+                # Read a deliberately unused credential id. This proves the
+                # Windows keyring backend is packaged without writing a secret.
+                APISecretStore().get("life-mind-release-check-never-stored")
+            except Exception as error:
+                if sys.stderr is not None:
+                    print(f"ERROR: 冻结版依赖自检失败：{error}", file=sys.stderr)
+                return 1
+            report["system_tray"] = "available"
+            report["credential_store"] = "available"
+        output = json.dumps(report, ensure_ascii=True, indent=2)
+        # A PyInstaller windowed executable has no stdout stream. The exit code
+        # still makes --check useful to CI and release smoke tests.
+        if sys.stdout is not None:
+            print(output)
         return 0
 
     run_desktop_pet(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 import threading
 import time
 import tkinter as tk
@@ -30,9 +31,49 @@ from life_mind.apps.system_tray import SystemTrayController
 from life_mind.mind import MindEngine
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PRIVATE_ANIMATION_DIR = PROJECT_ROOT / "assets" / "character" / "pixel_pet_v2"
-DEMO_ANIMATION_DIR = PROJECT_ROOT / ".cache" / "demo-character"
+CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LIFE-Mind"
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePaths:
+    """Writable and optional character locations for source and frozen runs."""
+
+    root: Path
+    private_animation_dir: Path
+    demo_animation_dir: Path
+
+
+def resolve_runtime_paths(
+    *,
+    frozen: bool | None = None,
+    module_file: Path | None = None,
+    executable: Path | None = None,
+    config_dir: Path | None = None,
+) -> RuntimePaths:
+    """Keep generated/user assets outside a frozen application's internals."""
+
+    is_frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    user_config_dir = Path(config_dir) if config_dir is not None else CONFIG_DIR
+    if is_frozen:
+        distribution_root = Path(executable or sys.executable).resolve().parent
+        return RuntimePaths(
+            root=distribution_root,
+            private_animation_dir=distribution_root / "character",
+            demo_animation_dir=user_config_dir / "demo-character",
+        )
+
+    source_root = Path(module_file or __file__).resolve().parents[2]
+    return RuntimePaths(
+        root=source_root,
+        private_animation_dir=source_root / "assets" / "character" / "pixel_pet_v2",
+        demo_animation_dir=source_root / ".cache" / "demo-character",
+    )
+
+
+RUNTIME_PATHS = resolve_runtime_paths()
+PROJECT_ROOT = RUNTIME_PATHS.root
+PRIVATE_ANIMATION_DIR = RUNTIME_PATHS.private_animation_dir
+DEMO_ANIMATION_DIR = RUNTIME_PATHS.demo_animation_dir
 REQUIRED_PIXEL_STYLE = "refined-pixel-art"
 
 
@@ -48,7 +89,6 @@ def default_animation_dir() -> Path:
 
 
 DEFAULT_ANIMATION_DIR = default_animation_dir()
-CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LIFE-Mind"
 CONFIG_PATH = CONFIG_DIR / "desktop-pet.json"
 ALLOWED_SCALES = (1, 2, 3)
 DISPLAY_HEIGHTS = {1: 330, 2: 440, 3: 570}
@@ -1798,6 +1838,7 @@ __all__ = (
     "NativeDesktopPet",
     "PetConfig",
     "PRIVATE_ANIMATION_DIR",
+    "RuntimePaths",
     "SEATED_ACTIVITY_CLIPS",
     "activity_transition_clips",
     "animation_report",
@@ -1811,5 +1852,6 @@ __all__ = (
     "make_soft_transition_frames",
     "next_frame_cursor",
     "resolved_clip_duration",
+    "resolve_runtime_paths",
     "run_desktop_pet",
 )

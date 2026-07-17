@@ -1,0 +1,31 @@
+# UTF-8 version resource consumed by PyInstaller on Windows.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 1, 0, 0),
+    prodvers=(0, 1, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'LIFE-Mind contributors'),
+          StringStruct('FileDescription', 'LIFE-Mind pixel desktop pet'),
+          StringStruct('FileVersion', '0.1.0'),
+          StringStruct('InternalName', 'LIFE-Mind'),
+          StringStruct('LegalCopyright', 'Copyright 2026 不语 (Bùyǔ, GitHub: 21g-bot)'),
+          StringStruct('OriginalFilename', 'LIFE-Mind.exe'),
+          StringStruct('ProductName', 'LIFE-Mind'),
+          StringStruct('ProductVersion', '0.1.0')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)

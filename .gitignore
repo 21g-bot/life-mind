@@ -14,6 +14,7 @@ build/
 dist/
 *.egg-info/
 *.spec
+!packaging/LIFE-Mind.spec
 
 # Runtime databases and local settings
 *.db

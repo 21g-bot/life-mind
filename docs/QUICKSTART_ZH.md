@@ -4,9 +4,13 @@
 
 ## 1. 准备软件
 
-安装：
+只想直接使用桌宠时，需要：
 
 - Windows 10 或 Windows 11；
+- 从本项目 GitHub Releases 下载的 Windows x64 便携包。
+
+想从源码运行或参与开发时，再安装：
+
 - Python 3.12；
 - 可选：Ollama，用于完全本机的 AI 对话；也可使用已有云端模型账号。
 
@@ -16,7 +20,25 @@
 py -3.12 --version
 ```
 
-## 2. 下载并安装
+## 2. 最简单：运行 Windows 便携版
+
+1. 打开 [GitHub Releases](https://github.com/21g-bot/life-mind/releases)；
+2. 下载 `LIFE-Mind-v0.1.0-windows-x64.zip` 和同名 `.sha256` 文件；
+3. 完整解压 ZIP，不要直接在压缩包预览窗口中运行；
+4. 双击解压目录里的 `LIFE-Mind.exe`。
+
+当前预览版没有商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”。请确认下载
+地址属于 `github.com/21g-bot/life-mind`。需要核对文件时，在 ZIP 所在目录运行：
+
+```powershell
+Get-FileHash .\LIFE-Mind-v0.1.0-windows-x64.zip -Algorithm SHA256
+Get-Content .\LIFE-Mind-v0.1.0-windows-x64.sha256
+```
+
+两处 64 位校验值应完全一致。便携版不修改系统安装目录；运行数据仍保存在第 7 节所列的
+用户本地目录。
+
+## 3. 开发者：从源码运行
 
 ```powershell
 git clone https://github.com/21g-bot/life-mind.git
@@ -28,13 +50,14 @@ python -m pip install -r requirements.txt
 
 如果 PowerShell 不允许激活虚拟环境，可以不激活，后面的 `python` 改成 `.\.venv\Scripts\python.exe`。
 
-## 3. 第一次启动
+## 4. 第一次启动
 
 ```powershell
 python -B run_pet.py
 ```
 
-首次运行如果没有私人素材，程序会在 `.cache/demo-character/` 自动生成演示角色。这个目录不会进入 Git。
+源码版首次运行如果没有私人素材，会在 `.cache/demo-character/` 自动生成演示角色；便携版
+会生成到 `%LOCALAPPDATA%\LIFE-Mind\demo-character\`。两者都不会被加入 GitHub 发行包。
 
 常用操作：
 
@@ -49,7 +72,7 @@ python -B run_pet.py
 python -B run_pet.py --check
 ```
 
-## 4. 接入 AI（可选）
+## 5. 接入 AI（可选）
 
 最重视隐私时，安装并启动 Ollama：
 
@@ -68,7 +91,7 @@ ollama pull qwen3:4b
 没有任何模型时桌宠仍能使用离线规则运行，只是自然语言能力会变弱。各服务的地址、环境
 变量和故障排查见 [AI 模型接入指南](AI_PROVIDER_GUIDE.md)。
 
-## 5. 换成自己的角色
+## 6. 换成自己的角色
 
 动作库是一个带透明 PNG 帧和 `manifest.json` 的目录。最小结构：
 
@@ -114,6 +137,9 @@ my-pet/
 python -B run_pet.py --asset C:\path\to\my-pet
 ```
 
+便携版可以直接在 `LIFE-Mind.exe` 同级创建 `character\`，并把 `manifest.json` 和各动作目录
+放进去；也可以使用下面的 `LIFE_MIND_ASSET` 环境变量指向任意位置。
+
 也可以设置本机环境变量，让普通启动一直使用它：
 
 ```powershell
@@ -124,7 +150,7 @@ setx LIFE_MIND_NAME "我的桌宠"
 
 第二项是可选的身份锁：设置后，程序会拒绝加载其他 `identity` 的动作库。第三项覆盖窗口、房间、托盘和 AI 提示中显示的角色名称。重新打开终端后环境变量才生效。
 
-## 6. 私人数据在哪里
+## 7. 私人数据在哪里
 
 默认保存在：
 
@@ -148,7 +174,7 @@ data/
 .deps/
 ```
 
-## 7. 运行测试
+## 8. 运行测试
 
 ```powershell
 python -m pip install -r requirements-dev.txt
@@ -164,7 +190,7 @@ python -B tools/check_markdown_links.py
 协议、核心测试和模拟通过，说明公开数据边界、状态机、记忆治理和动作加载器基本正常。后两项检查准备公开的
 文件中是否混入数据库、私人素材、私人角色身份、缓存、密钥形态、本机绝对路径或失效文档链接。
 
-## 8. 常见问题
+## 9. 常见问题
 
 ### 提示找不到 Pillow
 
