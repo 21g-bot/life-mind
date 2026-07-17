@@ -34,7 +34,7 @@ jobs:
             "dist/release/LIFE-Mind-v$version-windows-x64.zip" `
             "dist/release/LIFE-Mind-v$version-windows-x64.sha256" `
             --run
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: life-mind-windows
           path: dist/release/*
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: life-mind-windows
           path: dist/release
