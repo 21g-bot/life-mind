@@ -1,0 +1,75 @@
+name: 实施任务
+description: 认领或细化公开实施任务
+title: "[Task] "
+body:
+  - type: input
+    id: backlog_id
+    attributes:
+      label: 任务编号
+      description: 来自 docs/IMPLEMENTATION_BACKLOG.md，例如 HOST-01。
+      placeholder: HOST-01
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 用户可感知结果
+      description: 用结果描述，不要只写内部重构。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 实现范围与非目标
+      description: 写清会改什么，以及本任务明确不处理什么。
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: 主要层级
+      options:
+        - Mind Core
+        - Pet Host
+        - Capability Runtime
+        - Creator / Package
+        - Mind Debugger
+        - Release / Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 可验证验收条件
+      description: 至少列出正常路径、失败路径和边界测试。
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: 隐私、安全与黑箱影响
+      description: 说明观察、记忆、使用、行动、分享和普通 UI 可见内容是否变化。
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: 测试与人工验证计划
+    validations:
+      required: true
+  - type: textarea
+    id: provenance
+    attributes:
+      label: 第三方来源与许可证
+      description: 没有复用第三方内容时写“无”。
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 不会提交私人角色素材、真实对话、数据库、密钥或本机路径。
+          required: true
+        - label: 不会让模型、UI 或第三方包绕过 Experience Protocol 直接修改心智。
+          required: true

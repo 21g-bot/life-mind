@@ -1,0 +1,49 @@
+name: Bug 报告
+description: 报告可复现的程序错误
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先删除聊天、记忆、数据库内容、用户名、路径和密钥。不要上传整个本地数据目录。
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      placeholder: v0.1.0 或提交哈希
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python 与 Windows 版本
+      placeholder: Python 3.12.x / Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 最小复现步骤
+      description: 只提供脱敏后的最小步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已移除私人数据、密钥和无权公开的素材。
+          required: true

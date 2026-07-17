@@ -1,0 +1,57 @@
+# Python environments and caches
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+.deps/
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# Build and package output
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Runtime databases and local settings
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+desktop-pet.json
+ai-config.json
+.env
+.env.*
+!.env.example
+
+# Personal character art and generated animation packs
+/assets/character/*
+!/assets/character/README.md
+/source/
+
+# Private character design notes and local-only reference scenario
+/docs/CHARACTER_SEED.md
+/docs/VISUAL_DIRECTION.md
+/simulations/mvp_growth.json
+
+# Local QA, exports, captured wallpaper packages and blind-test responses
+/tmp/
+/data/
+/blind-responses/
+/tools/archive_wallpaper_pipeline/
+/tools/build_pixel_animation_pack.py
+/tools/stabilize_animation_pack.py
+*memory-export*.json
+growth-blind-review*.json
+growth-blind-evaluation*.json
+desktop-soak-*.json
+
+# Editor and OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

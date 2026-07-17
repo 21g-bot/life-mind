@@ -1,0 +1,29 @@
+name: 功能建议
+description: 提议通用且不破坏隐私边界的功能
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题
+      description: 请描述用户场景，不要提交私人对话或角色档案。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: 边界确认
+      options:
+        - label: 该建议不要求公开用户记忆、角色内心或私人素材。
+          required: true

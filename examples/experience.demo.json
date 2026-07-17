@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "0.1",
+  "eventId": "evt_demo_focus_001",
+  "eventType": "autonomous_activity",
+  "source": "local.focus-timer",
+  "role": "agent",
+  "actors": ["companion", "user"],
+  "observation": {
+    "summary": "一次安静陪伴的专注时段结束了",
+    "durationMinutes": 25
+  },
+  "interpretation": {
+    "primary": "共同完成了一段不被打扰的时间",
+    "alternatives": ["用户可能只是暂时离开了电脑"]
+  },
+  "uncertainty": 0.08,
+  "emotionImpact": {
+    "calm": 0.12,
+    "competence": 0.06
+  },
+  "action": {
+    "kind": "quiet_acknowledgement"
+  },
+  "outcome": {
+    "status": "completed"
+  },
+  "privacy": {
+    "level": "private",
+    "allowedUses": ["state_update", "reflection"],
+    "shareable": false
+  },
+  "growthCandidates": [
+    "安静陪伴也可以是一种有价值的共同经历"
+  ]
+}

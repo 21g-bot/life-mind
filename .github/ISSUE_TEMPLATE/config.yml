@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题
+    url: https://github.com/21g-bot/life-mind/security/advisories/new
+    about: 请通过私密漏洞报告提交安全问题，不要公开敏感细节。

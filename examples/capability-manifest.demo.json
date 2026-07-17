@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "0.1",
+  "id": "life-mind.focus-timer",
+  "version": "0.1.0",
+  "name": "本地专注计时器（协议演示）",
+  "permissions": [
+    "observe:focus-session",
+    "memory:summary-write",
+    "ui:notification"
+  ],
+  "forbidden": [
+    "credentials",
+    "private-messages",
+    "background-surveillance"
+  ],
+  "dataScopes": [
+    "focus.session.summary"
+  ],
+  "networkAllowlist": [],
+  "rateLimits": {
+    "eventsPerHour": 20,
+    "notificationsPerHour": 4
+  }
+}

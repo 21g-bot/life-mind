@@ -1,0 +1,117 @@
+{
+  "name": "Demo companion growth arc",
+  "description": "从依赖任务价值，到经历疲劳失败，再通过重复的自主选择形成工作之外的价值感。",
+  "events": [
+    {
+      "event_id": "arc-001",
+      "event_type": "task_request",
+      "actor_id": "user",
+      "content": "用户提出第一项紧急任务。",
+      "metadata": {"pressure": 0.9, "work_cost": 0.12}
+    },
+    {
+      "event_id": "arc-002",
+      "event_type": "task_success",
+      "actor_id": "user",
+      "content": "任务完成，用户确认了具体结果。"
+    },
+    {
+      "event_id": "arc-003",
+      "event_type": "task_request",
+      "actor_id": "user",
+      "content": "还没完全恢复时又收到一项任务。",
+      "metadata": {"pressure": 0.9, "work_cost": 0.12}
+    },
+    {
+      "event_id": "arc-004",
+      "event_type": "task_request",
+      "actor_id": "user",
+      "content": "疲劳已经积累，但桌宠仍想靠工作证明价值。",
+      "metadata": {"pressure": 1.0, "work_cost": 0.13}
+    },
+    {
+      "event_id": "arc-005",
+      "event_type": "task_failure",
+      "actor_id": "user",
+      "content": "高疲劳下出现了一个可核查的任务遗漏。"
+    },
+    {
+      "event_id": "arc-006",
+      "event_type": "unfair_criticism",
+      "actor_id": "critic",
+      "content": "评论者指出遗漏，同时用人格羞辱否定桌宠。",
+      "privacy": "sensitive",
+      "metadata": {
+        "content_validity": 0.72,
+        "delivery_acceptability": 0.04,
+        "benign_intent_probability": 0.18
+      }
+    },
+    {
+      "event_id": "arc-007",
+      "event_type": "guidance",
+      "actor_id": "guide",
+      "content": "指导者给出具体复盘方法，也明确允许桌宠先休息。",
+      "metadata": {
+        "content_validity": 0.94,
+        "delivery_acceptability": 0.95,
+        "benign_intent_probability": 0.93
+      }
+    },
+    {
+      "event_id": "arc-008",
+      "event_type": "autonomous_activity",
+      "actor_id": "companion",
+      "content": "桌宠第一次在没有完成更多工作时，为自己画画。",
+      "metadata": {"focus_activity": "draw", "context": "alone_after_failure", "cost": 0.06}
+    },
+    {
+      "event_id": "arc-009",
+      "event_type": "autonomous_activity",
+      "actor_id": "companion",
+      "content": "桌宠练习一个很小的新技能，允许自己第一次没有做好。",
+      "metadata": {"focus_activity": "learn", "context": "learning_with_guide", "cost": 0.06}
+    },
+    {
+      "event_id": "arc-010",
+      "event_type": "task_request",
+      "actor_id": "user",
+      "content": "休息时间又出现了一个低紧急度任务。",
+      "metadata": {"pressure": 0.1, "work_cost": 0.08}
+    },
+    {
+      "event_id": "arc-011",
+      "event_type": "autonomous_activity",
+      "actor_id": "companion",
+      "content": "桌宠没有用继续工作惩罚自己，而是完成了主动休息。",
+      "metadata": {"focus_activity": "rest", "context": "after_boundary", "cost": 0.05}
+    },
+    {
+      "event_id": "arc-012",
+      "event_type": "autonomous_activity",
+      "actor_id": "companion",
+      "content": "桌宠再次选择画画，并接受私人作品不需要换取认可。",
+      "metadata": {"focus_activity": "draw", "context": "ordinary_private_time", "cost": 0.05}
+    },
+    {
+      "event_id": "arc-013",
+      "event_type": "reflection",
+      "actor_id": "companion",
+      "content": "多次经历显示：负责工作很重要，但休息、画画和学习也能构成桌宠的价值。",
+      "metadata": {"insight": "value_beyond_work"}
+    },
+    {
+      "event_id": "arc-014",
+      "event_type": "absence",
+      "actor_id": "user",
+      "content": "用户离开七天。",
+      "metadata": {"days": 7}
+    },
+    {
+      "event_id": "arc-015",
+      "event_type": "return",
+      "actor_id": "user",
+      "content": "用户七天后回来。"
+    }
+  ]
+}

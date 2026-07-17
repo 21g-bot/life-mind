@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/21g-bot/life-mind/schemas/life-package.schema.json",
+  "title": "LIFE-Mind Life Package 0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "packageId", "compatibility", "identity", "visuals",
+    "animations", "temperamentRanges", "initialValues", "expressionStyle",
+    "growthConstraints", "contentLicense"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "0.1"},
+    "packageId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "compatibility": {
+      "type": "object",
+      "required": ["lifeMind"],
+      "properties": {"lifeMind": {"type": "string", "minLength": 1}},
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object",
+      "required": ["kind", "displayName"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "displayName": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "visuals": {
+      "type": "object",
+      "required": ["renderer"],
+      "properties": {"renderer": {"type": "string", "minLength": 1}},
+      "additionalProperties": true
+    },
+    "animations": {
+      "type": "object",
+      "required": ["manifest"],
+      "properties": {"manifest": {"type": "string", "minLength": 1}},
+      "additionalProperties": true
+    },
+    "voice": {"type": "object"},
+    "temperamentRanges": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/valueRange"}
+    },
+    "initialValues": {
+      "type": "object",
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "possibleConflicts": {"$ref": "#/$defs/uniqueStrings"},
+    "latentTraitPool": {"$ref": "#/$defs/uniqueStrings"},
+    "expressionStyle": {"type": "object"},
+    "growthConstraints": {
+      "type": "object",
+      "properties": {"maxActiveArcs": {"type": "integer", "minimum": 1}},
+      "additionalProperties": true
+    },
+    "contentLicense": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spdx", "assets", "attribution", "redistributable"],
+      "properties": {
+        "spdx": {"type": "string", "minLength": 1},
+        "assets": {"type": "string", "minLength": 1},
+        "attribution": {"type": "string", "minLength": 1},
+        "redistributable": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "valueRange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": {"type": "number", "minimum": 0, "maximum": 1},
+            "max": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        {
+          "type": "array",
+          "prefixItems": [
+            {"type": "number", "minimum": 0, "maximum": 1},
+            {"type": "number", "minimum": 0, "maximum": 1}
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        }
+      ]
+    },
+    "uniqueStrings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  }
+}
