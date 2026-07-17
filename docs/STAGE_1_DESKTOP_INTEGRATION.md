@@ -6,7 +6,7 @@
 
 - `life_mind/integration.py` 把实际输入转换成结构化事件，并把心智动作映射到像素动作名。
 - `life_mind/persistence.py` 保存事件和完整轨迹，并用固定 seed 在启动时回放。
-- `life_mind/mind.py` 负责旧状态迁移、统一状态同步、反思证据门禁和本地 AI 表达适配。
+- `life_mind/mind.py` 负责旧状态迁移、统一状态同步、反思证据门禁和可替换 AI 表达适配。
 - `life_mind/apps/desktop_pet.py` 只执行仲裁结果，并在显式开发者模式提供可视化心智调试器。
 
 ## SQLite 表

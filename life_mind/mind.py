@@ -980,6 +980,7 @@ class MindEngine:
         generation: AIGeneration,
         allow_reflection: bool,
         *,
+        source_text: str = "",
         source_memory_ids: tuple[int, ...] = (),
         source_event_id: int | None = None,
         source_mind_event_id: str | None = None,
@@ -995,10 +996,17 @@ class MindEngine:
                 confidence = 0.60
             if not content or category not in {"identity", "preference", "explicit"}:
                 continue
+            if not self._ai_memory_has_direct_evidence(content, category, source_text):
+                continue
+            if content.startswith("我"):
+                content = "用户" + content[1:]
+            comparison = re.sub(r"[\s\W_]+", "", content.casefold())
             if any(
-                content.casefold() == item.content.casefold()
-                or content.casefold() in item.content.casefold()
-                or item.content.casefold() in content.casefold()
+                comparison == (existing_comparison := re.sub(
+                    r"[\s\W_]+", "", item.content.casefold()
+                ))
+                or comparison in existing_comparison
+                or existing_comparison in comparison
                 for item in existing
             ):
                 continue
@@ -1034,6 +1042,65 @@ class MindEngine:
                 )
             )
         return learned
+
+    @staticmethod
+    def _ai_memory_has_direct_evidence(content: str, category: str, source_text: str) -> bool:
+        """Admit model-proposed memory only when this user turn directly supports it."""
+
+        source = str(source_text).strip()
+        if not source:
+            return False
+        patterns = {
+            "identity": (
+                r"(?:我叫|请叫我|叫我|我的名字是|我名字叫)\s*([^，。！？!?；;]{1,30})",
+                r"我的(?:生日|职业|家乡|称呼|昵称)是\s*([^，。！？!?；;]{1,40})",
+            ),
+            "preference": (
+                r"我(?:很|更|最|不)?(?:喜欢|讨厌|偏好|偏爱|爱吃|常听)\s*([^，。！？!?；;]{1,60})",
+                r"我对\s*([^，。！？!?；;]{1,50})(?:感兴趣|没兴趣)",
+            ),
+            "explicit": (
+                r"(?:请你?|一定要)?记住(?:一下)?\s*[:：，,]?\s*([^。！？!?；;]{2,80})",
+                r"别忘了\s*([^。！？!?；;]{2,80})",
+            ),
+        }
+        evidence: list[str] = []
+        for pattern in patterns.get(category, ()):
+            evidence.extend(match.group(1) for match in re.finditer(pattern, source, re.I))
+        if not evidence:
+            return False
+
+        def normalize(value: str) -> str:
+            normalized = re.sub(r"[\s\W_]+", "", value.casefold())
+            for prefix in (
+                "用户明确要求记住",
+                "用户要求记住",
+                "用户的偏好是",
+                "用户的名字是",
+                "用户名字是",
+                "用户希望被称为",
+                "用户不喜欢",
+                "用户偏爱",
+                "用户偏好",
+                "用户喜欢",
+                "用户讨厌",
+                "用户叫",
+                "我不喜欢",
+                "我偏爱",
+                "我偏好",
+                "我喜欢",
+                "我讨厌",
+                "记住",
+            ):
+                normalized = normalized.removeprefix(prefix)
+            return normalized
+
+        candidate = normalize(content)
+        return bool(candidate) and any(
+            (normalized := normalize(item))
+            and normalized == candidate
+            for item in evidence
+        )
 
     def _ground_ai_reply(self, reply: str) -> str:
         unsupported = re.search(
@@ -1101,11 +1168,16 @@ class MindEngine:
         if self.ai_responder is not None:
             try:
                 history = self._recent_dialogue(10)
-                context_memories = self.memories_for_use("model_context", 16)
+                responder_config = getattr(self.ai_responder, "config", None)
+                share_memory = bool(getattr(responder_config, "share_memory", True))
+                context_memories = (
+                    self.memories_for_use("model_context", 16) if share_memory else []
+                )
                 ai_input_summary = {
                     "history_messages": len(history),
                     "memory_ids": [memory.id for memory in context_memories],
                     "reflection_allowed": model_reflection_allowed,
+                    "memory_sharing": share_memory,
                 }
                 # The current user event is already the final history entry.
                 generation = self.ai_responder.generate(
@@ -1135,6 +1207,7 @@ class MindEngine:
                         self._store_ai_learning(
                             generation,
                             model_reflection_allowed,
+                            source_text=cleaned,
                             source_memory_ids=source_memory_ids,
                             source_event_id=user_event_id,
                             source_mind_event_id=mind_event_id,
@@ -1148,11 +1221,15 @@ class MindEngine:
                     dict.fromkeys((*generation.safety_flags, *expression_flags))
                 )
                 ai_generated = True
-                ai_status = f"本地 AI：{generation.model or '已连接'}"
+                ai_status = f"AI 模型：{generation.model or '已连接'}"
             except LocalAIError as error:
                 ai_error = str(error)
                 ai_generated = False
-                ai_status = f"本地 AI 不可用：{ai_error}"
+                ai_status = f"AI 模型不可用：{ai_error}"
+            except Exception:
+                ai_error = "模型适配器发生了未预期错误，已安全切换到离线规则"
+                ai_generated = False
+                ai_status = f"AI 模型不可用：{ai_error}"
         else:
             ai_generated = False
             ai_status = "离线规则"
@@ -1182,7 +1259,7 @@ class MindEngine:
         elif not ai_generated:
             symbol, face, reply = "♪", "( ´ ▽ ` )ﾉ", "嗯，我听到了。"
             if ai_error:
-                reply = "本地模型现在没有回应，但我已经把这次互动和记忆保存在本地。"
+                reply = "AI 模型现在没有回应，但本地心智和已经明确写入的记忆仍然正常。"
 
         if allow_reflection:
             growth = self.runtime.state.growth

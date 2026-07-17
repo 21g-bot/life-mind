@@ -11,7 +11,7 @@
 | 中立演示角色 | 由代码生成到 `.cache/demo-character/` | 只公开生成器，不提交生成结果 |
 | 私人角色原图和动作帧 | `assets/character/`、`source/` | 否 |
 | 对话、记忆、关系和成长数据库 | `%LOCALAPPDATA%\LIFE-Mind\life-mind.db*` | 否 |
-| 窗口位置和本地 AI 设置 | `%LOCALAPPDATA%\LIFE-Mind\*.json` | 否 |
+| 窗口位置和 AI 设置 | `%LOCALAPPDATA%\LIFE-Mind\*.json` | 否 |
 | QA 截图、第三方来源包、盲测答卷 | `tmp/`、`data/` | 否 |
 | 私人动作库生成/稳定化脚本 | `tools/build_pixel_animation_pack.py`、`tools/stabilize_animation_pack.py` | 否 |
 | 本地依赖与缓存 | `.deps/`、`.cache/`、`.venv/` | 否 |

@@ -8,7 +8,7 @@
 
 - Windows 10 或 Windows 11；
 - Python 3.12；
-- 可选：Ollama，用于本地 AI 对话。
+- 可选：Ollama，用于完全本机的 AI 对话；也可使用已有云端模型账号。
 
 打开 PowerShell，确认 Python 可用：
 
@@ -40,7 +40,7 @@ python -B run_pet.py
 
 - 左键拖动：移动桌宠；
 - 双击：打招呼；
-- 右键：聊天、选择活动、打开个人房间、配置本地 AI；
+- 右键：聊天、选择活动、打开个人房间、配置 AI 模型；
 - `Esc`：退出。
 
 只检查动作库、不打开窗口：
@@ -49,7 +49,9 @@ python -B run_pet.py
 python -B run_pet.py --check
 ```
 
-## 4. 接入本地 AI（可选）
+## 4. 接入 AI（可选）
+
+最重视隐私时，安装并启动 Ollama：
 
 安装并启动 Ollama 后执行：
 
@@ -57,7 +59,14 @@ python -B run_pet.py --check
 ollama pull qwen3:4b
 ```
 
-启动桌宠，右键选择“本地 AI 设置…”，检测连接即可。没有 Ollama 时桌宠仍能使用离线规则运行，只是自然语言能力会变弱。
+启动桌宠，右键选择“AI 模型设置…”，模型名称留空，保存并检测即可。
+
+如果想使用 DeepSeek、GLM、Gemini、Kimi、千问、OpenRouter、OpenAI、Claude 或其他兼容
+服务，在同一窗口选择厂商、填写模型和 API 密钥。密钥进入 Windows 凭据管理器，不会写入
+项目文件。云端连接会先说明发送哪些数据并询问许可；长期记忆共享可以关闭。
+
+没有任何模型时桌宠仍能使用离线规则运行，只是自然语言能力会变弱。各服务的地址、环境
+变量和故障排查见 [AI 模型接入指南](AI_PROVIDER_GUIDE.md)。
 
 ## 5. 换成自己的角色
 
@@ -165,7 +174,8 @@ python -m pip install -r requirements.txt
 
 ### 桌宠没有自然语言回复
 
-这是 Ollama 未启动或未安装模型，不影响离线状态机。运行 `ollama list` 检查模型。
+本机模式先运行 `ollama list` 检查 Ollama 和模型；云端模式在“AI 模型设置…”中检查接口、
+模型名和密钥。连接失败不影响离线状态机。
 
 ### 自定义角色无法加载
 
