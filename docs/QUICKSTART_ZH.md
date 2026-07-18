@@ -23,7 +23,7 @@ py -3.12 --version
 ## 2. 最简单：运行 Windows 便携版
 
 1. 打开 [GitHub Releases](https://github.com/21g-bot/life-mind/releases)；
-2. 下载 `LIFE-Mind-v0.1.0-windows-x64.zip` 和同名 `.sha256` 文件；
+2. 下载 `LIFE-Mind-v0.1.1-windows-x64.zip` 和同名 `.sha256` 文件；
 3. 完整解压 ZIP，不要直接在压缩包预览窗口中运行；
 4. 双击解压目录里的 `LIFE-Mind.exe`。
 
@@ -31,8 +31,8 @@ py -3.12 --version
 地址属于 `github.com/21g-bot/life-mind`。需要核对文件时，在 ZIP 所在目录运行：
 
 ```powershell
-Get-FileHash .\LIFE-Mind-v0.1.0-windows-x64.zip -Algorithm SHA256
-Get-Content .\LIFE-Mind-v0.1.0-windows-x64.sha256
+Get-FileHash .\LIFE-Mind-v0.1.1-windows-x64.zip -Algorithm SHA256
+Get-Content .\LIFE-Mind-v0.1.1-windows-x64.sha256
 ```
 
 两处 64 位校验值应完全一致。便携版不修改系统安装目录；运行数据仍保存在第 7 节所列的

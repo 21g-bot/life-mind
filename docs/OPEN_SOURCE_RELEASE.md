@@ -88,13 +88,14 @@ Release。
 发布前必须先确认 PR 上的 `tests` 与 `windows-package` 都通过，然后创建带说明的标签：
 
 ```powershell
+$version = "0.1.1" # 每次发布前改成准备发布的版本
 git switch main
 git pull --ff-only
-git tag -a v0.1.0 -m "LIFE-Mind v0.1.0"
-git push origin v0.1.0
+git tag -a "v$version" -m "LIFE-Mind v$version"
+git push origin "v$version"
 ```
 
-标签工作流会读取 `docs/releases/v0.1.0.md`，上传 ZIP 和 `.sha256`。发布后再下载一次资产，
+标签工作流会读取对应的 `docs/releases/v<版本>.md`，上传 ZIP 和 `.sha256`。发布后再下载一次资产，
 核对校验值和实际启动结果。不要手工上传本机 `dist/`、私人动作库或 `%LOCALAPPDATA%` 数据。
 
 当前 EXE 未使用商业代码签名证书，因此文档必须保留 SmartScreen“未知发布者”和 SHA256
