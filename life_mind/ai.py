@@ -18,9 +18,13 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
+from life_mind import __version__
+
 
 DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "LIFE-Mind"
 AI_CONFIG_PATH = DATA_DIR / "ai-config.json"
+MAX_PROVIDER_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_PROVIDER_ERROR_BYTES = 64 * 1024
 
 
 class LocalAIError(RuntimeError):
@@ -414,13 +418,19 @@ def parse_generation_payload(
     expected = {"reply", "symbol", "reflection", "memories", "interpretation"}
     if set(payload) != expected:
         raise LocalAIError("本地模型返回了未授权字段或缺少必需字段")
-    reply = str(payload["reply"]).strip()
+    if not isinstance(payload["reply"], str):
+        raise LocalAIError("本地模型返回了无效回复文本")
+    if not isinstance(payload["symbol"], str):
+        raise LocalAIError("本地模型返回了无效反应符号")
+    if not isinstance(payload["reflection"], str):
+        raise LocalAIError("本地模型返回了无效反思文本")
+    reply = payload["reply"].strip()
     if not reply:
         raise LocalAIError("本地模型返回了空回复")
-    symbol = str(payload["symbol"])
+    symbol = payload["symbol"]
     if symbol not in {"!", "?", "♪", "…", "Zz"}:
         raise LocalAIError("本地模型返回了无效反应符号")
-    reflection = str(payload["reflection"]).strip()[:120] if allow_reflection else ""
+    reflection = payload["reflection"].strip()[:120] if allow_reflection else ""
 
     raw_memories = payload["memories"]
     if not isinstance(raw_memories, list) or len(raw_memories) > 3:
@@ -429,16 +439,22 @@ def parse_generation_payload(
     for item in raw_memories:
         if not isinstance(item, dict) or set(item) != {"content", "category", "confidence"}:
             raise LocalAIError("本地模型记忆包含未授权字段")
-        category = str(item["category"])
+        if not isinstance(item["content"], str) or not isinstance(item["category"], str):
+            raise LocalAIError("本地模型记忆包含无效文本字段")
+        category = item["category"]
         if category not in {"identity", "preference", "explicit"}:
             raise LocalAIError("本地模型返回了无效记忆类型")
+        if isinstance(item["confidence"], bool) or not isinstance(
+            item["confidence"], (int, float)
+        ):
+            raise LocalAIError("本地模型返回了无效记忆置信度")
         try:
             confidence = float(item["confidence"])
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
             raise LocalAIError("本地模型返回了无效记忆置信度") from error
-        if not 0.0 <= confidence <= 1.0:
+        if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
             raise LocalAIError("本地模型返回了越界记忆置信度")
-        content = str(item["content"]).strip()[:160]
+        content = item["content"].strip()[:160]
         if content:
             memories.append(
                 {"content": content, "category": category, "confidence": confidence}
@@ -451,14 +467,20 @@ def parse_generation_payload(
         "hypotheses",
     }:
         raise LocalAIError("本地模型社会解释包含未授权字段")
-    primary = str(raw_interpretation["primary_intent"])
+    if not isinstance(raw_interpretation["primary_intent"], str):
+        raise LocalAIError("本地模型返回了无效主要意图")
+    primary = raw_interpretation["primary_intent"]
     if primary not in SOCIAL_INTENTS:
         raise LocalAIError("本地模型返回了无效主要意图")
+    if isinstance(raw_interpretation["uncertainty"], bool) or not isinstance(
+        raw_interpretation["uncertainty"], (int, float)
+    ):
+        raise LocalAIError("本地模型返回了无效不确定度")
     try:
         uncertainty = float(raw_interpretation["uncertainty"])
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, OverflowError) as error:
         raise LocalAIError("本地模型返回了无效不确定度") from error
-    if not 0.0 <= uncertainty <= 1.0:
+    if not math.isfinite(uncertainty) or not 0.0 <= uncertainty <= 1.0:
         raise LocalAIError("本地模型返回了越界不确定度")
     raw_hypotheses = raw_interpretation["hypotheses"]
     if not isinstance(raw_hypotheses, list) or not 1 <= len(raw_hypotheses) <= 3:
@@ -467,17 +489,23 @@ def parse_generation_payload(
     for item in raw_hypotheses:
         if not isinstance(item, dict) or set(item) != {"label", "confidence", "evidence"}:
             raise LocalAIError("社会假设包含未授权字段")
-        label = str(item["label"])
+        if not isinstance(item["label"], str) or not isinstance(item["evidence"], str):
+            raise LocalAIError("社会假设包含无效文本字段")
+        label = item["label"]
         if label not in SOCIAL_INTENTS:
             raise LocalAIError("社会假设标签无效")
+        if isinstance(item["confidence"], bool) or not isinstance(
+            item["confidence"], (int, float)
+        ):
+            raise LocalAIError("社会假设置信度无效")
         try:
             confidence = float(item["confidence"])
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
             raise LocalAIError("社会假设置信度无效") from error
-        if not 0.0 <= confidence <= 1.0:
+        if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
             raise LocalAIError("社会假设置信度越界")
         hypotheses.append(
-            AISocialHypothesis(label, confidence, str(item["evidence"]).strip()[:120])
+            AISocialHypothesis(label, confidence, item["evidence"].strip()[:120])
         )
     guarded_reply, safety_flags = guard_model_expression(reply[:420])
     return AIGeneration(
@@ -578,18 +606,22 @@ def _request_json(
     request_headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "LIFE-Mind/0.1",
+        "User-Agent": f"LIFE-Mind/{__version__}",
         **(headers or {}),
     }
     request = urllib.request.Request(url, data=body, method=method, headers=request_headers)
     try:
         opener = urllib.request.build_opener(_SameOriginRedirectHandler())
         with opener.open(request, timeout=config.timeout_seconds) as response:
-            parsed = json.loads(response.read().decode("utf-8"))
+            raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
+                raise LocalAIError("模型服务响应超过 4 MiB 安全上限")
+            parsed = json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as error:
+        raw_error = error.read(MAX_PROVIDER_ERROR_BYTES + 1)
         raise ProviderHTTPError(
             error.code,
-            _error_detail(error.read(), f"服务返回 HTTP {error.code}"),
+            _error_detail(raw_error[:MAX_PROVIDER_ERROR_BYTES], f"服务返回 HTTP {error.code}"),
         ) from error
     except (OSError, urllib.error.URLError, TimeoutError, ValueError) as error:
         raise LocalAIError(str(error)) from error

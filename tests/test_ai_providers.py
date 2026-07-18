@@ -4,7 +4,9 @@ import json
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
+from life_mind import __version__
 from life_mind.ai import (
     AIConfig,
     AIGeneration,
@@ -183,6 +185,39 @@ class AIConfigAndPresetTests(unittest.TestCase):
 
 
 class ProviderProtocolTests(unittest.TestCase):
+    def test_http_response_is_bounded_and_user_agent_has_real_version(self) -> None:
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, amount=-1):
+                return b"x" * amount
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                requests.append((request, timeout))
+                return FakeResponse()
+
+        client = OpenAICompatibleClient(
+            AIConfig(
+                provider="custom-openai",
+                endpoint="http://127.0.0.1:8000/v1",
+                model="test-model",
+            ),
+            FakeSecretStore(""),
+        )
+        with patch("life_mind.ai.urllib.request.build_opener", return_value=FakeOpener()):
+            with self.assertRaisesRegex(LocalAIError, "4 MiB"):
+                client.models()
+        request, timeout = requests[0]
+        self.assertEqual(request.get_header("User-agent"), f"LIFE-Mind/{__version__}")
+        self.assertEqual(timeout, client.config.timeout_seconds)
+
     def test_json_parser_accepts_fence_but_rejects_surrounding_prose(self) -> None:
         payload = valid_payload()
         self.assertEqual(

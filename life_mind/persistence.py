@@ -42,6 +42,10 @@ class PersistentMindRuntime:
         self.connection.commit()
         self.events = self._load_events()
         self.simulator = self._build_simulator(self.events)
+        self._event_traces = {
+            event.event_id: trace
+            for event, trace in zip(self.events, self.simulator.traces, strict=True)
+        }
 
     def _create_schema(self) -> None:
         self.connection.executescript(
@@ -121,16 +125,16 @@ class PersistentMindRuntime:
         return simulator
 
     def apply(self, event: MindEvent) -> SimulationTrace:
-        existing = next(
-            (index for index, item in enumerate(self.events) if item.event_id == event.event_id),
-            None,
-        )
+        existing = self._event_traces.get(event.event_id)
         if existing is not None:
-            return self.simulator.traces[existing]
+            return existing
 
-        candidate = self._build_simulator([*self.events, event])
-        trace = candidate.traces[-1]
+        # The normal path is incremental. Replaying the complete history for
+        # every new event made n events cost O(n²), which becomes visible after
+        # only a few hundred desktop interactions. If persistence fails, rebuild
+        # from the last committed event list so memory and SQLite stay aligned.
         try:
+            trace = self.simulator.apply_event(event)
             self.connection.execute(
                 """
                 INSERT INTO mind_events_v2(event_id, event_json, trace_json, created_at)
@@ -143,13 +147,23 @@ class PersistentMindRuntime:
                     utc_now(),
                 ),
             )
-            self._meta_set("last_state", candidate.state.to_dict())
+            self._meta_set("last_state", self.simulator.state.to_dict())
             self.connection.commit()
-        except sqlite3.Error:
-            self.connection.rollback()
+        except BaseException:
+            try:
+                self.connection.rollback()
+            except sqlite3.Error:
+                pass
+            self.simulator = self._build_simulator(self.events)
+            self._event_traces = {
+                item.event_id: item_trace
+                for item, item_trace in zip(
+                    self.events, self.simulator.traces, strict=True
+                )
+            }
             raise
         self.events.append(event)
-        self.simulator = candidate
+        self._event_traces[event.event_id] = trace
         return trace
 
     def redact_events(self, event_ids: set[str] | list[str] | tuple[str, ...]) -> int:
@@ -199,6 +213,12 @@ class PersistentMindRuntime:
         if changed:
             self.events = self._load_events()
             self.simulator = self._build_simulator(self.events)
+            self._event_traces = {
+                event.event_id: trace
+                for event, trace in zip(
+                    self.events, self.simulator.traces, strict=True
+                )
+            }
             self._meta_set("last_state", self.simulator.state.to_dict())
             self.connection.commit()
         return changed

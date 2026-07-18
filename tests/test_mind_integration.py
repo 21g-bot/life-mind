@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sqlite3
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
-from life_mind.mind import MindEngine
+from life_mind.mind import MAX_USER_MESSAGE_CHARS, MindEngine
 
 
 class PersistentMindIntegrationTests(unittest.TestCase):
@@ -27,6 +29,82 @@ class PersistentMindIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["last_trace"]["event"]["event_type"], "task_request")
         self.assertEqual(response.mind_action, "accept_task")
         self.assertEqual(response.mind_clip, "work")
+        engine.close()
+
+    def test_new_events_are_incremental_and_duplicate_ids_are_idempotent(self) -> None:
+        engine = MindEngine(self.path)
+        self.assertEqual(engine.runtime.events, [])
+        with patch.object(
+            engine.runtime,
+            "_build_simulator",
+            wraps=engine.runtime._build_simulator,
+        ) as rebuild:
+            engine.apply_activity_effect("idle", "增量性能测试")
+        rebuild.assert_not_called()
+        first = engine.runtime.events[-1]
+        trace = engine.runtime.apply(first)
+        self.assertEqual(trace.event["event_id"], first.event_id)
+        self.assertEqual(engine.runtime.event_count(), 1)
+        engine.close()
+
+    def test_incremental_state_matches_full_deterministic_replay(self) -> None:
+        engine = MindEngine(self.path)
+        activities = ("idle", "water", "draw", "work", "hum", "look_around")
+        for index in range(60):
+            activity = activities[index % len(activities)]
+            engine.apply_activity_effect(activity, f"增量回放一致性 {index}")
+        replayed = engine.runtime._build_simulator(engine.runtime.events)
+        self.assertEqual(engine.runtime.simulator.state.to_dict(), replayed.state.to_dict())
+        self.assertEqual(engine.runtime.simulator.memories, replayed.memories)
+        self.assertEqual(engine.runtime.simulator.traces, replayed.traces)
+        engine.close()
+
+    def test_failed_incremental_write_restores_committed_runtime_state(self) -> None:
+        engine = MindEngine(self.path)
+        before = engine.runtime.state.to_dict()
+        engine.connection.executescript(
+            """
+            CREATE TRIGGER reject_mind_event
+            BEFORE INSERT ON mind_events_v2
+            BEGIN
+                SELECT RAISE(ABORT, 'forced test failure');
+            END;
+            """
+        )
+        engine.connection.commit()
+        with self.assertRaises(sqlite3.IntegrityError):
+            engine.apply_activity_effect("idle", "触发事务回滚")
+        self.assertEqual(engine.runtime.state.to_dict(), before)
+        self.assertEqual(engine.runtime.event_count(), 0)
+        engine.connection.execute("DROP TRIGGER reject_mind_event")
+        engine.connection.commit()
+        engine.apply_activity_effect("idle", "回滚后仍可继续")
+        self.assertEqual(engine.runtime.event_count(), 1)
+        engine.close()
+
+    def test_failed_event_evaluation_also_restores_runtime_state(self) -> None:
+        engine = MindEngine(self.path)
+        before = engine.runtime.state.to_dict()
+        with self.assertRaises(ValueError):
+            engine.inject_debug_event(
+                "unfair_criticism",
+                metadata={"content_validity": "not-a-number"},
+            )
+        self.assertEqual(engine.runtime.state.to_dict(), before)
+        self.assertEqual(engine.runtime.event_count(), 0)
+        engine.apply_activity_effect("idle", "计算失败后仍可继续")
+        self.assertEqual(engine.runtime.event_count(), 1)
+        engine.close()
+
+    def test_oversized_user_message_is_rejected_without_persisting(self) -> None:
+        engine = MindEngine(self.path)
+        response = engine.process_user_text("长" * (MAX_USER_MESSAGE_CHARS + 1))
+        self.assertIn(str(MAX_USER_MESSAGE_CHARS), response.text)
+        self.assertEqual(engine.runtime.event_count(), 0)
+        self.assertEqual(engine.state().interaction_count, 0)
+        self.assertEqual(
+            engine.connection.execute("SELECT COUNT(*) FROM events").fetchone()[0], 0
+        )
         engine.close()
 
     def test_runtime_state_and_last_decision_survive_restart_by_replay(self) -> None:
