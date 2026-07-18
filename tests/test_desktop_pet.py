@@ -360,6 +360,16 @@ class ReactionTests(unittest.TestCase):
                 sequencing=False,
             )
         )
+        self.assertFalse(
+            autonomy_tick_allowed(
+                do_not_disturb=False,
+                dragging=False,
+                paused=False,
+                reacting=False,
+                sequencing=False,
+                dialogue_in_progress=True,
+            )
+        )
 
     def test_activity_transitions_only_change_physical_posture(self) -> None:
         self.assertEqual(activity_transition_clips("idle", "draw"), ("sit_down",))

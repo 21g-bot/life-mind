@@ -226,10 +226,20 @@ def autonomy_tick_allowed(
     paused: bool,
     reacting: bool,
     sequencing: bool,
+    dialogue_in_progress: bool = False,
 ) -> bool:
     """Gate only unsolicited activity; user-initiated dialogue remains available."""
 
-    return not any((do_not_disturb, dragging, paused, reacting, sequencing))
+    return not any(
+        (
+            do_not_disturb,
+            dragging,
+            paused,
+            reacting,
+            sequencing,
+            dialogue_in_progress,
+        )
+    )
 
 
 def load_frame_sequence(path: Path, duration_ms: int = 250, *, loop: bool = True) -> GifAnimation:
@@ -457,6 +467,8 @@ class NativeDesktopPet:
         self.pending_activity_name: str | None = None
         self.hidden = False
         self.closing = False
+        self.dialogue_in_progress = False
+        self.dialogue_thread: threading.Thread | None = None
         self.tray: SystemTrayController | None = None
         self.private_room_window: PrivateRoomWindow | None = None
 
@@ -883,6 +895,7 @@ class NativeDesktopPet:
             paused=self.paused,
             reacting=bool(self.reaction_job),
             sequencing=bool(self.sequence_job),
+            dialogue_in_progress=self.dialogue_in_progress,
         ):
             decision = self.behavior.tick(self.mind.state())
             if decision:
@@ -922,6 +935,10 @@ class NativeDesktopPet:
             text = entry.get().strip()
             if not text:
                 return
+            if self.dialogue_in_progress:
+                status.configure(text=f"{self.character_name}还在想上一句话，请稍等一下。")
+                return
+            self.dialogue_in_progress = True
             entry.configure(state="disabled")
             submit_button.configure(state="disabled")
             status.configure(text=f"{self.character_name}正在想…")
@@ -931,6 +948,8 @@ class NativeDesktopPet:
                     response = self.mind.process_user_text(text)
                 except Exception:
                     def recover() -> None:
+                        self.dialogue_in_progress = False
+                        self.dialogue_thread = None
                         if not dialog.winfo_exists():
                             return
                         entry.configure(state="normal")
@@ -945,6 +964,8 @@ class NativeDesktopPet:
                     return
 
                 def deliver() -> None:
+                    self.dialogue_in_progress = False
+                    self.dialogue_thread = None
                     if dialog.winfo_exists():
                         dialog.destroy()
                     cue, decision = self.behavior.on_dialogue(
@@ -971,7 +992,13 @@ class NativeDesktopPet:
                 except tk.TclError:
                     pass
 
-            threading.Thread(target=work, daemon=True).start()
+            worker = threading.Thread(
+                target=work,
+                name="life-mind-dialogue",
+                daemon=True,
+            )
+            self.dialogue_thread = worker
+            worker.start()
 
         submit_button = tk.Button(
             dialog, text=f"说给{self.character_name}听", command=submit, padx=14
@@ -1814,12 +1841,26 @@ class NativeDesktopPet:
         if self.closing:
             return
         self.closing = True
+        dialogue_thread = self.dialogue_thread
         self._remember_position()
         self._save_config()
         if self.tray:
             self.tray.stop()
         if self.private_room_window and self.private_room_window.exists():
             self.private_room_window.close()
+        if dialogue_thread is not None and dialogue_thread.is_alive():
+            self.root.destroy()
+
+            def close_after_dialogue() -> None:
+                dialogue_thread.join()
+                self.mind.close()
+
+            threading.Thread(
+                target=close_after_dialogue,
+                name="life-mind-shutdown",
+                daemon=False,
+            ).start()
+            return
         self.mind.close()
         self.root.destroy()
 
