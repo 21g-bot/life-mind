@@ -312,6 +312,7 @@ class DatabaseReliabilityTests(unittest.TestCase):
             engine.process_user_text(f"普通对话 {index}")
             engine.backup_now()
         self.assertEqual(len(list(self.backups.glob("*.db"))), 7)
+        self.assertEqual(list(self.backups.glob("*.tmp*")), [])
         engine.close()
 
     def test_backup_failure_does_not_prevent_a_clean_database_close(self) -> None:
@@ -338,6 +339,7 @@ class DatabaseReliabilityTests(unittest.TestCase):
             create_atomic_backup(connection, self.database, directory=self.backups)
         connection.close()
         self.assertFalse(list(self.backups.glob("*.db")))
+        self.assertEqual(list(self.backups.glob("*.tmp*")), [])
 
     def test_doctor_report_is_useful_but_contains_no_private_content_or_path(self) -> None:
         engine = MindEngine(self.database, auto_backup=False, backup_dir=self.backups)

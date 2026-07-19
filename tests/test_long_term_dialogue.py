@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import unittest
 import uuid
 from pathlib import Path
@@ -126,6 +127,26 @@ class LongTermDialogueTests(unittest.TestCase):
         self.assertEqual([item.id for item in recalled], [project.id])
         engine.close()
 
+    def test_questions_are_not_mistaken_for_stable_memories(self) -> None:
+        responder = CapturingAI()
+        engine = MindEngine(self.database, ai_responder=responder, auto_backup=False)
+
+        for question in (
+            "我正在做什么？",
+            "我住在哪里？",
+            "我的工作是什么？",
+            "我的目标是什么？",
+            "我通常怎么安排时间？",
+            "你记住了什么？",
+            "请不要记住：这是临时信息",
+            "别叫我小明",
+        ):
+            response = engine.process_user_text(question)
+            self.assertEqual(response.remembered, (), question)
+
+        self.assertEqual(engine.memories(), [])
+        engine.close()
+
     def test_dialogue_history_is_local_bounded_and_restart_safe(self) -> None:
         responder = CapturingAI()
         engine = MindEngine(self.database, ai_responder=responder, auto_backup=False)
@@ -167,6 +188,79 @@ class LongTermDialogueTests(unittest.TestCase):
         self.assertTrue(audit["semantic_retry_resolved"])
         self.assertIn("上一版回复未通过本地语义质量检查", responder.calls[-1][-1]["content"])
         engine.close()
+
+    def test_clearing_dialogue_redacts_both_transcripts_but_keeps_memories(self) -> None:
+        responder = CapturingAI()
+        engine = MindEngine(self.database, ai_responder=responder, auto_backup=False)
+        first = engine.process_user_text("请记住：我的长期项目代号是晨光")
+        memory_id = first.remembered[0].id
+        engine.process_user_text("这句只是普通私密聊天，不要长期记住")
+        engine.backup_now()
+        engine.backup_now()
+        self.assertGreaterEqual(len(list(engine.backup_dir.glob("*.db"))), 2)
+
+        result = engine.clear_dialogue_history()
+
+        self.assertEqual(result.redacted_dialogue_events, 4)
+        self.assertEqual(result.redacted_mind_events, 2)
+        self.assertEqual(result.backup_cleanup_error, "")
+        backups = list(engine.backup_dir.glob("*.db"))
+        self.assertEqual(len(backups), 1)
+        backup_connection = sqlite3.connect(backups[0])
+        try:
+            backup_payload = "\n".join(
+                str(row[0])
+                for row in backup_connection.execute(
+                    "SELECT payload_json FROM events ORDER BY id"
+                ).fetchall()
+            )
+            backup_mind_payload = "\n".join(
+                str(row[0])
+                for row in backup_connection.execute(
+                    "SELECT event_json FROM mind_events_v2 ORDER BY sequence"
+                ).fetchall()
+            )
+        finally:
+            backup_connection.close()
+        self.assertNotIn("普通私密聊天", backup_payload)
+        self.assertNotIn("普通私密聊天", backup_mind_payload)
+        private_bytes = "普通私密聊天".encode("utf-8")
+        physical_files = [
+            self.database,
+            Path(str(self.database) + "-wal"),
+            Path(str(self.database) + "-shm"),
+            *backups,
+        ]
+        self.assertTrue(
+            all(
+                private_bytes not in item.read_bytes()
+                for item in physical_files
+                if item.is_file()
+            )
+        )
+        self.assertEqual(engine.dialogue_history(), ())
+        self.assertIsNotNone(engine.memory(memory_id))
+        legacy_payloads = "\n".join(
+            str(row[0])
+            for row in engine.connection.execute(
+                "SELECT payload_json FROM events ORDER BY id"
+            ).fetchall()
+        )
+        mind_payloads = "\n".join(
+            str(row[0])
+            for row in engine.connection.execute(
+                "SELECT event_json FROM mind_events_v2 ORDER BY sequence"
+            ).fetchall()
+        )
+        for private_text in ("晨光", "普通私密聊天"):
+            self.assertNotIn(private_text, legacy_payloads)
+            self.assertNotIn(private_text, mind_payloads)
+        engine.close()
+
+        reopened = MindEngine(self.database, auto_backup=False)
+        self.assertEqual(reopened.dialogue_history(), ())
+        self.assertIsNotNone(reopened.memory(memory_id))
+        reopened.close()
 
 
 if __name__ == "__main__":
