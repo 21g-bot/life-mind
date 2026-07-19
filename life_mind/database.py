@@ -440,11 +440,11 @@ def create_atomic_backup(
         if not report.healthy and report.status != "legacy":
             raise DatabaseReliabilityError(f"新备份未通过完整性检查：{report.status}")
         os.replace(temporary, final)
-    except BaseException:
+    finally:
         if destination is not None:
             destination.close()
-        temporary.unlink(missing_ok=True)
-        raise
+        for temporary_file in _sidecar_paths(temporary):
+            temporary_file.unlink(missing_ok=True)
 
     backups = sorted(
         target_dir.glob(f"{source.stem}-*.db"),

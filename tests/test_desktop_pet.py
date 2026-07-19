@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -12,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from life_mind.ai import AIConfig, AIGeneration, LocalAIError, OllamaClient
+from life_mind.database import backup_directory
 from life_mind.behavior import BehaviorStateMachine, classify_dialogue_cue
 from life_mind.apps.desktop_pet import (
     DEMO_ANIMATION_DIR,
@@ -493,6 +495,7 @@ class MindTests(unittest.TestCase):
     def tearDown(self) -> None:
         for suffix in ("", "-wal", "-shm"):
             Path(str(self.path) + suffix).unlink(missing_ok=True)
+        shutil.rmtree(backup_directory(self.path), ignore_errors=True)
 
     def test_memory_survives_restart_and_can_be_deleted(self) -> None:
         engine = MindEngine(self.path)

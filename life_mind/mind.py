@@ -9,7 +9,7 @@ import re
 import sqlite3
 import threading
 from functools import wraps
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -112,6 +112,14 @@ class MemoryDeletionResult:
     redacted_event_ids: tuple[int, ...]
     redacted_mind_event_ids: tuple[str, ...]
     invalidated_journal_days: tuple[str, ...]
+    backup_cleanup_error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DialogueDeletionResult:
+    redacted_dialogue_events: int
+    redacted_mind_events: int
+    backup_cleanup_error: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +213,7 @@ class MindEngine:
             self.connection.execute("PRAGMA journal_mode=WAL")
             self.connection.execute("PRAGMA foreign_keys=ON")
             self.connection.execute("PRAGMA busy_timeout=5000")
+            self.connection.execute("PRAGMA secure_delete=ON")
             previous_schema = int(
                 self.connection.execute("PRAGMA user_version").fetchone()[0]
             )
@@ -378,7 +387,10 @@ class MindEngine:
             )
 
         name = None
-        if not re.search(r"(?:我叫什么|我叫啥|叫我什么|叫我啥)", text):
+        if not re.search(
+            r"(?:我叫什么|我叫啥|叫我什么|叫我啥|不要叫我|别叫我|不用叫我)",
+            text,
+        ):
             name = re.search(r"(?:我叫|以后(?:请)?叫我|叫我)([\u4e00-\u9fffA-Za-z0-9_·]{1,20})", text)
         if name:
             value = self._clean_fragment(name.group(1), 20)
@@ -461,19 +473,31 @@ class MindEngine:
         for namespace, pattern, template, category, confidence, importance in stable_patterns:
             match = re.search(pattern, text)
             if match:
+                candidate = match.group(1).strip()
+                if re.match(
+                    r"^(?:什么|啥|哪里|哪儿|哪|谁|怎么|如何|多少|多久)",
+                    candidate,
+                ):
+                    continue
                 add_hashed(
                     namespace,
-                    match.group(1),
+                    candidate,
                     template,
                     category,
                     confidence,
                     importance,
                 )
 
-        explicit = re.search(r"(?:请|你要)?记住[：:]?(.{1,80})", text)
+        explicit = re.search(
+            r"(?:^|[，,。；;！!])\s*(?:请|你要)?记住[：:]?\s*(.{1,80})",
+            text,
+        )
         if explicit:
             value = self._clean_fragment(explicit.group(1), 80)
-            if value:
+            if value and not re.match(
+                r"^(?:什么|啥|哪里|哪儿|哪|谁|怎么|如何|多少|多久|了什么|的是什么)",
+                value,
+            ):
                 digest = hashlib.sha256(value.casefold().encode("utf-8")).hexdigest()[:16]
                 key = f"explicit.{digest}"
                 found.append((key, value, "explicit", 0.99, 0.88))
@@ -902,6 +926,9 @@ class MindEngine:
             },
         )
         self.connection.commit()
+        backup_cleanup_error = self._refresh_private_backups()
+        if backup_cleanup_error:
+            result = replace(result, backup_cleanup_error=backup_cleanup_error)
         return result
 
     @synchronized
@@ -1100,6 +1127,60 @@ class MindEngine:
         """Return a bounded local transcript for the user's conversation window."""
 
         return self._dialogue_context(max_messages=limit).messages
+
+    @synchronized
+    def clear_dialogue_history(self) -> DialogueDeletionResult:
+        """Redact chat text locally while preserving non-text structural continuity."""
+
+        rows = self.connection.execute(
+            "SELECT id, event_type, payload_json FROM events "
+            "WHERE event_type IN ('user_message', 'mind_response') ORDER BY id"
+        ).fetchall()
+        redacted_dialogue_events = 0
+        mind_event_ids: set[str] = set()
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict) or payload.get("redacted"):
+                continue
+            mind_event_id = str(payload.get("mind_event_id", "")).strip()
+            if mind_event_id:
+                mind_event_ids.add(mind_event_id)
+            replacement: dict[str, object] = {
+                "redacted": True,
+                "reason": "user_cleared_dialogue_history",
+            }
+            if mind_event_id:
+                replacement["mind_event_id"] = mind_event_id
+            self.connection.execute(
+                "UPDATE events SET payload_json=? WHERE id=?",
+                (json.dumps(replacement, ensure_ascii=False), int(row["id"])),
+            )
+            redacted_dialogue_events += 1
+
+        redacted_mind_events = self.runtime.redact_events(tuple(mind_event_ids))
+        self._sync_runtime_state()
+        if redacted_dialogue_events or redacted_mind_events:
+            self.record_event(
+                "dialogue_history_cleared",
+                {
+                    "redacted_dialogue_events": redacted_dialogue_events,
+                    "redacted_mind_events": redacted_mind_events,
+                },
+            )
+        self.connection.commit()
+        backup_cleanup_error = (
+            self._refresh_private_backups()
+            if redacted_dialogue_events or redacted_mind_events
+            else ""
+        )
+        return DialogueDeletionResult(
+            redacted_dialogue_events=redacted_dialogue_events,
+            redacted_mind_events=redacted_mind_events,
+            backup_cleanup_error=backup_cleanup_error,
+        )
 
     def _system_prompt(self, memories: list[MemoryRecord] | None = None) -> str:
         state = self.state()
@@ -1912,6 +1993,25 @@ class MindEngine:
         self.last_backup_error = ""
         return self.last_backup_path
 
+    def _refresh_private_backups(self) -> str:
+        """Compact redacted text and replace ordinary snapshots with one clean backup."""
+
+        try:
+            self.connection.commit()
+            self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            self.connection.execute("VACUUM")
+            self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            self.last_backup_path = create_atomic_backup(
+                self.connection,
+                self.path,
+                directory=self.backup_dir,
+                retention=1,
+            )
+            self.last_backup_error = ""
+        except (OSError, sqlite3.Error, RuntimeError) as error:
+            self.last_backup_error = f"{type(error).__name__}: {error}"
+        return self.last_backup_error
+
     @synchronized
     def close(self) -> None:
         if self._closed:
@@ -1932,6 +2032,7 @@ class MindEngine:
 
 __all__ = (
     "DEFAULT_DB_PATH",
+    "DialogueDeletionResult",
     "JournalEntry",
     "MemoryDeletionResult",
     "MemoryRecord",

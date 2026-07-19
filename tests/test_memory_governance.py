@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import unittest
 import uuid
 from pathlib import Path
 
+from life_mind.database import backup_directory
 from life_mind.mind import MindEngine
 
 
@@ -20,6 +22,7 @@ class MemoryGovernanceTests(unittest.TestCase):
         self.engine.close()
         for suffix in ("", "-wal", "-shm"):
             Path(str(self.path) + suffix).unlink(missing_ok=True)
+        shutil.rmtree(backup_directory(self.path), ignore_errors=True)
 
     def test_unapproved_source_never_enters_model_context(self) -> None:
         with self.assertRaises(PermissionError):

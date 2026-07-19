@@ -1013,6 +1013,40 @@ class NativeDesktopPet:
             )
             transcript.configure(state="disabled")
 
+        def clear_history() -> None:
+            if self.dialogue_in_progress:
+                status.configure(text=f"{self.character_name}还在回复，请等这一轮结束后再清空。")
+                return
+            if not messagebox.askyesno(
+                "清空本地聊天记录？",
+                "这会清除聊天窗口、AI 上下文和心智事件中的对话原文。\n\n"
+                "已经单独写入的长期记忆不会自动删除；如需删除，请再使用“管理本地记忆”。\n\n"
+                "普通备份会更新为脱敏快照；曾因数据库损坏而隔离的 recovery 副本不会自动删除。",
+                parent=dialog,
+            ):
+                return
+            result = self.mind.clear_dialogue_history()
+            transcript.configure(state="normal")
+            transcript.delete("1.0", "end")
+            transcript.insert(
+                "end",
+                "本地聊天原文已清空。长期记忆仍可在记忆管理器中单独纠正或删除。\n",
+                "notice",
+            )
+            transcript.configure(state="disabled")
+            if result.backup_cleanup_error:
+                status.configure(
+                    text="活动数据库已清理，但普通备份更新失败；请先不要关闭程序并重试。",
+                    fg="#9A5A43",
+                )
+            else:
+                status.configure(
+                    text=f"已清理 {result.redacted_dialogue_events} 条对话记录和旧普通备份。",
+                    fg="#4E7040",
+                )
+
+        clear_button = tk.Button(compose, text="清空记录", command=clear_history, padx=10)
+        clear_button.pack(side="left", padx=(0, 8))
         entry = tk.Entry(compose, font=("Microsoft YaHei UI", 11))
         entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.chat_entry = entry
@@ -1037,6 +1071,7 @@ class NativeDesktopPet:
             entry.delete(0, "end")
             self.dialogue_in_progress = True
             entry.configure(state="disabled")
+            clear_button.configure(state="disabled")
             submit_button.configure(state="disabled")
             status.configure(text=f"{self.character_name}正在想…")
 
@@ -1050,6 +1085,7 @@ class NativeDesktopPet:
                         if not dialog.winfo_exists():
                             return
                         entry.configure(state="normal")
+                        clear_button.configure(state="normal")
                         submit_button.configure(state="normal")
                         status.configure(text="这次处理没有完成，请稍后再试。")
                         transcript.configure(state="normal")
@@ -1069,6 +1105,7 @@ class NativeDesktopPet:
                     self.dialogue_thread = None
                     if dialog.winfo_exists():
                         entry.configure(state="normal")
+                        clear_button.configure(state="normal")
                         submit_button.configure(state="normal")
                         append_message("assistant", response.text)
                         status.configure(
@@ -1238,7 +1275,12 @@ class NativeDesktopPet:
                 messagebox.showinfo(
                     "已完成级联清理",
                     f"已删除 {len(result.deleted_ids)} 条记忆；"
-                    f"{len(result.downgraded_ids)} 条多来源记忆已标记待复核。",
+                    f"{len(result.downgraded_ids)} 条多来源记忆已标记待复核。"
+                    + (
+                        "\n\n⚠ 活动数据库已清理，但普通备份更新失败；请先手动备份并检查。"
+                        if result.backup_cleanup_error
+                        else "\n\n旧普通备份已替换为脱敏快照。"
+                    ),
                     parent=dialog,
                 )
 
