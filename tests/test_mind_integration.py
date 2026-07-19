@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from life_mind.mind import MAX_USER_MESSAGE_CHARS, MindEngine
+from life_mind.persistence import TRACE_CACHE_LIMIT
 
 
 class PersistentMindIntegrationTests(unittest.TestCase):
@@ -46,6 +47,33 @@ class PersistentMindIntegrationTests(unittest.TestCase):
         self.assertEqual(trace.event["event_id"], first.event_id)
         self.assertEqual(engine.runtime.event_count(), 1)
         engine.close()
+
+    def test_long_history_keeps_only_recent_full_traces_in_memory(self) -> None:
+        engine = MindEngine(self.path)
+        first_event = None
+        for index in range(TRACE_CACHE_LIMIT + 40):
+            engine.apply_activity_effect("idle", f"有界轨迹缓存 {index}")
+            if first_event is None:
+                first_event = engine.runtime.events[0]
+
+        before_count = engine.runtime.event_count()
+        before_state = engine.runtime.state.to_dict()
+        self.assertEqual(before_count, TRACE_CACHE_LIMIT + 40)
+        self.assertEqual(len(engine.runtime.events), before_count)
+        self.assertEqual(len(engine.runtime.simulator.traces), TRACE_CACHE_LIMIT)
+        self.assertEqual(len(engine.runtime._event_traces), TRACE_CACHE_LIMIT)
+
+        old_trace = engine.runtime.apply(first_event)
+        self.assertEqual(old_trace.event["event_id"], first_event.event_id)
+        self.assertEqual(engine.runtime.event_count(), before_count)
+        self.assertEqual(engine.runtime.state.to_dict(), before_state)
+        engine.close()
+
+        reopened = MindEngine(self.path)
+        self.assertEqual(reopened.runtime.event_count(), before_count)
+        self.assertEqual(len(reopened.runtime.simulator.traces), TRACE_CACHE_LIMIT)
+        self.assertEqual(reopened.runtime.state.to_dict(), before_state)
+        reopened.close()
 
     def test_incremental_state_matches_full_deterministic_replay(self) -> None:
         engine = MindEngine(self.path)

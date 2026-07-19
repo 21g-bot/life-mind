@@ -166,6 +166,14 @@ python -B run_pet.py --restore-latest-backup
 接口。恢复命令会先隔离当前数据库，因此恢复后仍保留反悔和人工检查的可能。详细设计见
 [数据可靠性与恢复](docs/DATA_RELIABILITY.md)。
 
+维护者可以用一条命令验证 10,000 条长期事件的重放、备份、损坏恢复、数据库体积和内存预算：
+
+```powershell
+python -B tools\benchmark_data_reliability.py --events 10000
+```
+
+该命令只使用 `tmp/` 下的临时数据库，不读取或修改个人桌宠数据。
+
 仓库还会忽略 `.cache/`、`.deps/`、`source/`、`tmp/`、`data/`、数据库、环境变量文件和
 私人角色目录。发布前检查器会再次扫描 Git 候选文件。
 

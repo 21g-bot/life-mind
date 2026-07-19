@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import math
 import os
 import time
 from dataclasses import asdict, dataclass
@@ -112,7 +113,25 @@ def summarize_samples(
         raise ValueError("稳定性报告至少需要一个采样点")
     first, last = samples[0], samples[-1]
     peak = max(item.peak_rss_bytes for item in samples)
-    rss_growth = last.rss_bytes - first.rss_bytes
+    if len(samples) < 6:
+        growth_window_size = 1
+        baseline_rss = first.rss_bytes
+        final_baseline_rss = last.rss_bytes
+    else:
+        # Desktop animations deliberately move between several resident-memory
+        # levels as clips are decoded. Compare low-quartile baselines from the
+        # first and last windows so the result measures floor drift instead of
+        # whichever animation happened to be visible at either endpoint. Peak
+        # RSS remains a separate hard gate for transient allocations.
+        growth_window_size = max(3, math.ceil(len(samples) * 0.2))
+
+        def low_quartile(items: list[ResourceSample]) -> int:
+            values = sorted(item.rss_bytes for item in items)
+            return values[math.floor((len(values) - 1) * 0.25)]
+
+        baseline_rss = low_quartile(samples[:growth_window_size])
+        final_baseline_rss = low_quartile(samples[-growth_window_size:])
+    rss_growth = final_baseline_rss - baseline_rss
     handle_growth = last.handle_count - first.handle_count
     checks = {
         "peak_rss_within_limit": peak <= thresholds.max_peak_rss_bytes,
@@ -125,6 +144,10 @@ def summarize_samples(
         "sample_count": len(samples),
         "initial_rss_bytes": first.rss_bytes,
         "final_rss_bytes": last.rss_bytes,
+        "endpoint_rss_delta_bytes": last.rss_bytes - first.rss_bytes,
+        "growth_baseline_rss_bytes": baseline_rss,
+        "growth_final_rss_bytes": final_baseline_rss,
+        "growth_window_sample_count": growth_window_size,
         "peak_rss_bytes": peak,
         "rss_growth_bytes": rss_growth,
         "initial_handle_count": first.handle_count,

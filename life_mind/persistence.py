@@ -15,6 +15,9 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+TRACE_CACHE_LIMIT = 128
+
+
 class PersistentMindRuntime:
     """Persist domain events and rebuild the same mind by replaying them."""
 
@@ -42,10 +45,8 @@ class PersistentMindRuntime:
         self.connection.commit()
         self.events = self._load_events()
         self.simulator = self._build_simulator(self.events)
-        self._event_traces = {
-            event.event_id: trace
-            for event, trace in zip(self.events, self.simulator.traces, strict=True)
-        }
+        self._event_ids = {event.event_id for event in self.events}
+        self._rebuild_trace_cache()
 
     def _create_schema(self) -> None:
         self.connection.executescript(
@@ -121,13 +122,59 @@ class PersistentMindRuntime:
 
     def _build_simulator(self, events: list[MindEvent]) -> HeadlessMindSimulator:
         simulator = self._new_simulator()
-        simulator.run(events)
+        for event in events:
+            simulator.apply_event(event)
+            if len(simulator.traces) > TRACE_CACHE_LIMIT:
+                del simulator.traces[:-TRACE_CACHE_LIMIT]
         return simulator
+
+    @staticmethod
+    def _trace_from_payload(payload: dict[str, Any]) -> SimulationTrace:
+        return SimulationTrace(
+            event=dict(payload["event"]),
+            state_before=dict(payload["state_before"]),
+            social_appraisal=dict(payload["social_appraisal"]),
+            candidates=tuple(dict(item) for item in payload["candidates"]),
+            selected_action=dict(payload["selected_action"]),
+            state_after=dict(payload["state_after"]),
+            memory_ids=tuple(str(item) for item in payload.get("memory_ids", ())),
+            growth_change=str(payload.get("growth_change", "")),
+            notes=tuple(str(item) for item in payload.get("notes", ())),
+        )
+
+    def _load_trace(self, event_id: str) -> SimulationTrace:
+        row = self.connection.execute(
+            "SELECT trace_json FROM mind_events_v2 WHERE event_id=?", (event_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"找不到已记录事件：{event_id}")
+        try:
+            payload = json.loads(row[0])
+            if not isinstance(payload, dict):
+                raise TypeError("trace_json must be an object")
+            return self._trace_from_payload(payload)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"事件 {event_id} 的轨迹无法解析") from error
+
+    def _rebuild_trace_cache(self) -> None:
+        traces = self.simulator.traces
+        recent_events = self.events[-len(traces) :] if traces else []
+        self._event_traces = {
+            event.event_id: trace
+            for event, trace in zip(recent_events, traces, strict=True)
+        }
+
+    def _restore_committed_runtime(self) -> None:
+        self.simulator = self._build_simulator(self.events)
+        self._event_ids = {event.event_id for event in self.events}
+        self._rebuild_trace_cache()
 
     def apply(self, event: MindEvent) -> SimulationTrace:
         existing = self._event_traces.get(event.event_id)
         if existing is not None:
             return existing
+        if event.event_id in self._event_ids:
+            return self._load_trace(event.event_id)
 
         # The normal path is incremental. Replaying the complete history for
         # every new event made n events cost O(n²), which becomes visible after
@@ -154,16 +201,13 @@ class PersistentMindRuntime:
                 self.connection.rollback()
             except sqlite3.Error:
                 pass
-            self.simulator = self._build_simulator(self.events)
-            self._event_traces = {
-                item.event_id: item_trace
-                for item, item_trace in zip(
-                    self.events, self.simulator.traces, strict=True
-                )
-            }
+            self._restore_committed_runtime()
             raise
         self.events.append(event)
-        self._event_traces[event.event_id] = trace
+        self._event_ids.add(event.event_id)
+        if len(self.simulator.traces) > TRACE_CACHE_LIMIT:
+            del self.simulator.traces[:-TRACE_CACHE_LIMIT]
+        self._rebuild_trace_cache()
         return trace
 
     def redact_events(self, event_ids: set[str] | list[str] | tuple[str, ...]) -> int:
@@ -212,13 +256,7 @@ class PersistentMindRuntime:
             changed += 1
         if changed:
             self.events = self._load_events()
-            self.simulator = self._build_simulator(self.events)
-            self._event_traces = {
-                event.event_id: trace
-                for event, trace in zip(
-                    self.events, self.simulator.traces, strict=True
-                )
-            }
+            self._restore_committed_runtime()
             self._meta_set("last_state", self.simulator.state.to_dict())
             self.connection.commit()
         return changed
@@ -280,4 +318,4 @@ class PersistentMindRuntime:
         }
 
 
-__all__ = ("PersistentMindRuntime",)
+__all__ = ("PersistentMindRuntime", "TRACE_CACHE_LIMIT")
