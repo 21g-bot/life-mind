@@ -399,6 +399,7 @@ class NativeDesktopPet:
             or str(manifest.get("display_name", "")).strip()
             or "桌宠"
         )
+        self.soak_close_locked = os.environ.get("LIFE_MIND_SOAK_LOCK", "").strip() == "1"
         self.available_clip_names = frozenset(str(name) for name in manifest["clips"])
         self.runtime_clip_names = (
             frozenset({"idle", "blink"}) if ui_qa_lightweight else self.available_clip_names
@@ -489,7 +490,7 @@ class NativeDesktopPet:
         self._rebuild_scaled_frames()
         self._show_frame(0)
         self._start_system_tray()
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.protocol("WM_DELETE_WINDOW", self._request_close)
         self._schedule_next_frame()
         self.root.after(3000, self._behavior_tick)
         self.root.after(self.rng.randint(7500, 12000), self._blink)
@@ -563,7 +564,7 @@ class NativeDesktopPet:
         self.menu.add_checkbutton(label="始终置顶", variable=self.topmost_var, command=self.toggle_topmost)
         self.menu.add_command(label="回到右下角", command=self.move_to_bottom_right)
         self.menu.add_separator()
-        self.menu.add_command(label="退出桌宠", command=self.close)
+        self.menu.add_command(label="退出桌宠", command=self._request_close)
 
     def _bind_events(self) -> None:
         for widget in (self.root, self.canvas):
@@ -572,7 +573,7 @@ class NativeDesktopPet:
             widget.bind("<ButtonRelease-1>", self._finish_drag)
             widget.bind("<Button-3>", self._show_menu)
             widget.bind("<Double-Button-1>", lambda _event: self.react("♪", "(｡•̀ᴗ-)✧"))
-        self.root.bind("<Escape>", lambda _event: self.close())
+        self.root.bind("<Escape>", lambda _event: self._request_close())
 
     def _rebuild_scaled_frames(self, *, first_frame_only: bool = False) -> None:
         target_height = DISPLAY_HEIGHTS[self.config.scale]
@@ -1932,7 +1933,7 @@ class NativeDesktopPet:
             toggle_do_not_disturb=self.toggle_do_not_disturb,
             is_paused=lambda: self.paused,
             toggle_pause=self.toggle_pause,
-            close_application=self.close,
+            close_application=self._request_close,
             character_name=self.character_name,
         )
         self.tray.start()
@@ -2037,6 +2038,13 @@ class NativeDesktopPet:
             return
         self.mind.close()
         self.root.destroy()
+
+    def _request_close(self) -> None:
+        """Ignore interactive close requests only for an isolated soak instance."""
+
+        if self.soak_close_locked:
+            return
+        self.close()
 
     def run(self) -> None:
         self.root.mainloop()
