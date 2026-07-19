@@ -51,6 +51,34 @@ class SoakMonitorTests(unittest.TestCase):
         self.assertFalse(report["checks"]["rss_growth_within_limit"])
         self.assertFalse(report["checks"]["handle_growth_within_limit"])
 
+    def test_periodic_animation_memory_levels_do_not_look_like_a_leak(self) -> None:
+        rss_levels = [120, 120, 190, 265, 190, 190, 120, 120, 190, 265, 120, 190]
+        samples = [
+            ResourceSample(float(index), rss * MIB, 290 * MIB, 80, float(index))
+            for index, rss in enumerate(rss_levels)
+        ]
+
+        report = summarize_samples(samples)
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["growth_baseline_rss_bytes"], 120 * MIB)
+        self.assertEqual(report["growth_final_rss_bytes"], 120 * MIB)
+        self.assertEqual(report["rss_growth_bytes"], 0)
+        self.assertEqual(report["endpoint_rss_delta_bytes"], 70 * MIB)
+
+    def test_steady_state_floor_growth_still_fails_the_gate(self) -> None:
+        rss_levels = [100, 100, 180, 180, 195, 195, 195, 195, 195, 195]
+        samples = [
+            ResourceSample(float(index), rss * MIB, 220 * MIB, 80, float(index))
+            for index, rss in enumerate(rss_levels)
+        ]
+
+        report = summarize_samples(samples)
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["rss_growth_bytes"], 95 * MIB)
+        self.assertFalse(report["checks"]["rss_growth_within_limit"])
+
     @unittest.skipUnless(os.name == "nt", "Windows process counters")
     def test_current_process_can_be_sampled_without_psutil(self) -> None:
         sample = sample_process(os.getpid())
