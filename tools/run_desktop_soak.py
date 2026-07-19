@@ -88,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         command.append("--windowed")
     environment = os.environ.copy()
     environment["LIFE_MIND_NAME"] = "耐久测试桌宠（临时数据）"
+    environment["LIFE_MIND_SOAK_LOCK"] = "1"
     pet_stdout_path.parent.mkdir(parents=True, exist_ok=True)
     pet_stderr_path.parent.mkdir(parents=True, exist_ok=True)
     pet_stdout = pet_stdout_path.open("w", encoding="utf-8")
@@ -115,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             "target_hours": args.hours,
             "sample_seconds": args.sample_seconds,
             "test_instance": True,
+            "interactive_close_locked": True,
             "output": str(args.output),
             "checkpoint": str(checkpoint),
             "pet_stdout": str(pet_stdout_path),
@@ -155,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                     "target_hours": args.hours,
                     "sample_seconds": args.sample_seconds,
                     "test_instance": True,
+                    "interactive_close_locked": True,
                     "sample_count": sample_count,
                     "elapsed_seconds": sample.elapsed_seconds,
                     "latest_sample": asdict(sample),
@@ -185,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 "target_hours": args.hours,
                 "sample_seconds": args.sample_seconds,
                 "test_instance": True,
+                "interactive_close_locked": True,
                 "sample_count": report["sample_count"],
                 "elapsed_seconds": report["duration_seconds"],
                 "passed": report["passed"],
@@ -210,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
                 "updated_at": utc_now(),
                 "pet_pid": process.pid,
                 "target_hours": args.hours,
+                "interactive_close_locked": True,
                 "error": str(error) or type(error).__name__,
                 "output": str(args.output),
                 "checkpoint": str(checkpoint),

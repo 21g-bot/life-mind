@@ -10,7 +10,7 @@ from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from life_mind.ai import AIConfig, AIGeneration, LocalAIError, OllamaClient
 from life_mind.database import backup_directory
@@ -66,6 +66,24 @@ class PixelAnimationTests(unittest.TestCase):
             pet.open_mind_debugger()
         with self.assertRaises(PermissionError):
             pet.show_state()
+
+    def test_soak_instance_ignores_interactive_close_requests(self) -> None:
+        pet = object.__new__(NativeDesktopPet)
+        pet.soak_close_locked = True
+        pet.close = Mock()
+
+        pet._request_close()
+
+        pet.close.assert_not_called()
+
+    def test_normal_instance_still_accepts_interactive_close_requests(self) -> None:
+        pet = object.__new__(NativeDesktopPet)
+        pet.soak_close_locked = False
+        pet.close = Mock()
+
+        pet._request_close()
+
+        pet.close.assert_called_once_with()
 
     def test_local_backup_action_reports_only_the_snapshot_filename(self) -> None:
         pet = object.__new__(NativeDesktopPet)
