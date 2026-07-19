@@ -653,6 +653,8 @@ def _json_contract(allow_reflection: bool) -> str:
         "只输出一个 JSON 对象，不要 Markdown 代码围栏、解释或额外字段。"
         "不得输出人格、权限、成长、状态修改或工具调用字段。"
         "interpretation 给出一到三个可能社会含义；不确定时提高 uncertainty，不把假设写成事实。"
+        "reply 必须直接回应最后一条用户消息新增的问题或意图，不能复读上一条回复，也不能用"
+        "‘我在听’‘我注意到’代替具体回答；信息不足时说明缺少的具体信息并只追问一个问题。"
         "reply 只表达程序已经选定的行动，不声称修改权限、记忆或执行工具。"
         f"{reflection_rule}"
         "memories 仅记录用户本轮明确说出的稳定身份、称呼、偏好或明确要求记住的事实；"
@@ -782,7 +784,11 @@ class OllamaClient:
                 "stream": False,
                 "format": OUTPUT_SCHEMA,
                 "think": False,
-                "options": {"temperature": 0.15, "num_predict": 420},
+                "options": {
+                    "temperature": 0.30,
+                    "repeat_penalty": 1.10,
+                    "num_predict": 420,
+                },
                 "keep_alive": "10m",
             },
         )

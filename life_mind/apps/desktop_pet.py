@@ -472,6 +472,8 @@ class NativeDesktopPet:
         self.closing = False
         self.dialogue_in_progress = False
         self.dialogue_thread: threading.Thread | None = None
+        self.chat_window: tk.Toplevel | None = None
+        self.chat_entry: tk.Entry | None = None
         self.tray: SystemTrayController | None = None
         self.private_room_window: PrivateRoomWindow | None = None
 
@@ -923,17 +925,106 @@ class NativeDesktopPet:
         self.root.after(self.rng.randint(2500, 4500), self._blink)
 
     def open_chat(self) -> None:
+        if self.chat_window is not None and self.chat_window.winfo_exists():
+            self.chat_window.deiconify()
+            self.chat_window.lift()
+            if self.chat_entry is not None:
+                self.chat_entry.focus_force()
+            return
+
         dialog = tk.Toplevel(self.root)
         dialog.title(f"和{self.character_name}说句话")
         dialog.attributes("-topmost", True)
-        dialog.resizable(False, False)
-        tk.Label(dialog, text=f"你想对{self.character_name}说什么？", padx=14, pady=8).pack(anchor="w")
-        entry = tk.Entry(dialog, width=38, font=("Microsoft YaHei UI", 11))
-        entry.pack(padx=14, pady=(0, 8))
+        dialog_width, dialog_height = 560, 460
+        dialog_x = max(20, (dialog.winfo_screenwidth() - dialog_width) // 2)
+        dialog_y = max(20, (dialog.winfo_screenheight() - dialog_height) // 2)
+        dialog.geometry(
+            f"{dialog_width}x{dialog_height}+{dialog_x}+{dialog_y}"
+        )
+        dialog.minsize(440, 340)
+        self.chat_window = dialog
 
-        status = tk.Label(dialog, text="", fg="#7A6248")
-        status.pack(pady=(0, 5))
+        heading = tk.Frame(dialog)
+        heading.pack(fill="x", padx=14, pady=(12, 6))
+        tk.Label(
+            heading,
+            text=f"和{self.character_name}的连续对话",
+            font=("Microsoft YaHei UI", 11, "bold"),
+        ).pack(side="left")
+        ai_config = self.ai_client.config
+        configured_model = ai_config.model or "自动选择"
+        initial_ai_status = (
+            f"AI：{provider_preset(ai_config.provider).label} · {configured_model}"
+            if ai_config.enabled
+            else "AI 未启用 · 当前使用离线回应"
+        )
+        status = tk.Label(
+            heading,
+            text=initial_ai_status,
+            fg="#7A6248",
+        )
+        status.pack(side="right")
+
+        # Reserve the composer at the bottom before the expanding transcript;
+        # otherwise Tk can give the transcript the full client area on high-DPI
+        # displays and leave the input controls outside the visible window.
+        compose = tk.Frame(dialog)
+        compose.pack(side="bottom", fill="x", padx=14, pady=(0, 12))
+
+        transcript_frame = tk.Frame(dialog)
+        transcript_frame.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        scrollbar = tk.Scrollbar(transcript_frame)
+        scrollbar.pack(side="right", fill="y")
+        transcript = tk.Text(
+            transcript_frame,
+            wrap="word",
+            state="disabled",
+            font=("Microsoft YaHei UI", 10),
+            padx=10,
+            pady=8,
+            yscrollcommand=scrollbar.set,
+            relief="solid",
+            borderwidth=1,
+        )
+        transcript.pack(side="left", fill="both", expand=True)
+        scrollbar.configure(command=transcript.yview)
+        transcript.tag_configure("user", foreground="#765329", spacing1=7, spacing3=5)
+        transcript.tag_configure("assistant", foreground="#4E6041", spacing1=7, spacing3=5)
+        transcript.tag_configure("notice", foreground="#8A7A69", spacing1=5, spacing3=5)
+
+        def append_message(role: str, content: str) -> None:
+            label = "你" if role == "user" else self.character_name
+            tag = "user" if role == "user" else "assistant"
+            transcript.configure(state="normal")
+            transcript.insert("end", f"{label}：{content.strip()}\n", tag)
+            transcript.configure(state="disabled")
+            transcript.see("end")
+
+        history = self.mind.dialogue_history(20)
+        if history:
+            for message in history:
+                append_message(message["role"], message["content"])
+        else:
+            transcript.configure(state="normal")
+            transcript.insert(
+                "end",
+                "这里会保留本机最近的连续对话；关闭窗口或重启后仍可以接着聊。\n",
+                "notice",
+            )
+            transcript.configure(state="disabled")
+
+        entry = tk.Entry(compose, font=("Microsoft YaHei UI", 11))
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.chat_entry = entry
         submit_button: tk.Button
+
+        def close_dialog() -> None:
+            self.chat_window = None
+            self.chat_entry = None
+            if dialog.winfo_exists():
+                dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
         def submit(_event: tk.Event | None = None) -> None:
             text = entry.get().strip()
@@ -942,6 +1033,8 @@ class NativeDesktopPet:
             if self.dialogue_in_progress:
                 status.configure(text=f"{self.character_name}还在想上一句话，请稍等一下。")
                 return
+            append_message("user", text)
+            entry.delete(0, "end")
             self.dialogue_in_progress = True
             entry.configure(state="disabled")
             submit_button.configure(state="disabled")
@@ -959,6 +1052,10 @@ class NativeDesktopPet:
                         entry.configure(state="normal")
                         submit_button.configure(state="normal")
                         status.configure(text="这次处理没有完成，请稍后再试。")
+                        transcript.configure(state="normal")
+                        transcript.insert("end", "系统：这次处理没有完成，请稍后再试。\n", "notice")
+                        transcript.configure(state="disabled")
+                        transcript.see("end")
                         entry.focus_force()
 
                     try:
@@ -971,7 +1068,14 @@ class NativeDesktopPet:
                     self.dialogue_in_progress = False
                     self.dialogue_thread = None
                     if dialog.winfo_exists():
-                        dialog.destroy()
+                        entry.configure(state="normal")
+                        submit_button.configure(state="normal")
+                        append_message("assistant", response.text)
+                        status.configure(
+                            text=("✓ " if response.ai_generated else "⚠ ") + response.ai_status,
+                            fg="#4E7040" if response.ai_generated else "#9A5A43",
+                        )
+                        entry.focus_force()
                     cue, decision = self.behavior.on_dialogue(
                         text, response.symbol, self.mind.state()
                     )
@@ -1005,11 +1109,11 @@ class NativeDesktopPet:
             worker.start()
 
         submit_button = tk.Button(
-            dialog, text=f"说给{self.character_name}听", command=submit, padx=14
+            compose, text="发送", command=submit, padx=16
         )
-        submit_button.pack(pady=(0, 12))
+        submit_button.pack(side="right")
         entry.bind("<Return>", submit)
-        entry.bind("<Escape>", lambda _event: dialog.destroy())
+        entry.bind("<Escape>", lambda _event: close_dialog())
         entry.focus_force()
 
     def open_private_room(self) -> None:

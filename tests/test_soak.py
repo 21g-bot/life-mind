@@ -87,6 +87,17 @@ class SoakMonitorTests(unittest.TestCase):
         self.assertGreater(sample.handle_count, 0)
 
     @unittest.skipUnless(os.name == "nt", "Windows process counters")
+    def test_exited_process_is_not_reported_as_zero_resource_sample(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            cwd=Path(__file__).resolve().parents[1],
+        )
+        process.wait(timeout=10)
+
+        with self.assertRaises(ProcessLookupError):
+            sample_process(process.pid)
+
+    @unittest.skipUnless(os.name == "nt", "Windows process counters")
     def test_monitor_reports_progress_after_every_sample(self) -> None:
         progress: list[tuple[int, float]] = []
 
@@ -99,6 +110,7 @@ class SoakMonitorTests(unittest.TestCase):
 
         self.assertEqual(len(progress), report["sample_count"])
         self.assertEqual([item[0] for item in progress], list(range(1, len(progress) + 1)))
+        self.assertTrue(report["sleep_prevention_active"])
 
 
 if __name__ == "__main__":

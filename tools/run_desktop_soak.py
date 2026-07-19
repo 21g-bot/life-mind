@@ -64,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if args.windowed:
         command.append("--windowed")
-    process = subprocess.Popen(command, cwd=PROJECT_ROOT)
+    environment = os.environ.copy()
+    environment["LIFE_MIND_NAME"] = "耐久测试桌宠（临时数据）"
+    process = subprocess.Popen(command, cwd=PROJECT_ROOT, env=environment)
     started_at = utc_now()
     write_json_atomic(
         args.status,
@@ -75,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             "pet_pid": process.pid,
             "target_hours": args.hours,
             "sample_seconds": args.sample_seconds,
+            "test_instance": True,
             "output": str(args.output),
         },
     )
@@ -93,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                     "pet_pid": process.pid,
                     "target_hours": args.hours,
                     "sample_seconds": args.sample_seconds,
+                    "test_instance": True,
                     "sample_count": sample_count,
                     "elapsed_seconds": sample.elapsed_seconds,
                     "latest_sample": asdict(sample),
@@ -116,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                 "pet_pid": process.pid,
                 "target_hours": args.hours,
                 "sample_seconds": args.sample_seconds,
+                "test_instance": True,
                 "sample_count": report["sample_count"],
                 "elapsed_seconds": report["duration_seconds"],
                 "passed": report["passed"],
