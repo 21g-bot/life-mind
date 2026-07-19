@@ -88,7 +88,7 @@ Release。
 发布前必须先确认 PR 上的 `tests` 与 `windows-package` 都通过，然后创建带说明的标签：
 
 ```powershell
-$version = "0.1.1" # 每次发布前改成准备发布的版本
+$version = "0.1.2" # 每次发布前改成准备发布的版本
 git switch main
 git pull --ff-only
 git tag -a "v$version" -m "LIFE-Mind v$version"
