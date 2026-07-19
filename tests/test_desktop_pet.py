@@ -8,6 +8,7 @@ import uuid
 from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from life_mind.ai import AIConfig, AIGeneration, LocalAIError, OllamaClient
@@ -63,6 +64,30 @@ class PixelAnimationTests(unittest.TestCase):
             pet.open_mind_debugger()
         with self.assertRaises(PermissionError):
             pet.show_state()
+
+    def test_local_backup_action_reports_only_the_snapshot_filename(self) -> None:
+        pet = object.__new__(NativeDesktopPet)
+        pet.root = object()
+        pet.mind = SimpleNamespace(
+            backup_now=lambda: Path("D:/private/LIFE-Mind/backups/safe-snapshot.db")
+        )
+        with patch("life_mind.apps.desktop_pet.messagebox.showinfo") as show_info:
+            pet.backup_local_data()
+        message = show_info.call_args.args[1]
+        self.assertIn("safe-snapshot.db", message)
+        self.assertNotIn("D:/private", message)
+
+    def test_startup_recovery_notice_does_not_reveal_private_paths(self) -> None:
+        pet = object.__new__(NativeDesktopPet)
+        pet.root = object()
+        pet.mind = SimpleNamespace(
+            startup_recovery=SimpleNamespace(notice="已隔离损坏数据并恢复有效备份。")
+        )
+        with patch("life_mind.apps.desktop_pet.messagebox.showwarning") as warning:
+            pet._show_startup_recovery_notice()
+        message = warning.call_args.args[1]
+        self.assertIn("已隔离", message)
+        self.assertNotIn("Users", message)
 
     def test_launcher_check_works_with_the_active_python_abi(self) -> None:
         result = subprocess.run(

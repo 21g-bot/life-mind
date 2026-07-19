@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import re
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -36,6 +38,15 @@ from life_mind.apps.desktop_pet import (
     run_desktop_pet,
 )
 from life_mind.demo_character import ensure_demo_character
+from life_mind.database import (
+    DatabaseReliabilityError,
+    create_atomic_backup,
+    inspect_database,
+    restore_latest_backup,
+    valid_backups,
+)
+from life_mind.mind import DEFAULT_DB_PATH
+from life_mind import __version__
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,6 +66,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--reset-config", action="store_true", help="清除窗口位置与大小设置")
     parser.add_argument("--config-path", type=Path, default=CONFIG_PATH, help="窗口设置文件路径")
     parser.add_argument("--db-path", type=Path, help="心智数据库路径；留空使用用户本地数据库")
+    maintenance = parser.add_mutually_exclusive_group()
+    maintenance.add_argument(
+        "--doctor",
+        action="store_true",
+        help="输出不含对话、路径、密钥和记忆正文的数据健康报告",
+    )
+    maintenance.add_argument(
+        "--backup-now",
+        action="store_true",
+        help="立即创建经过 SQLite 完整性检查的原子备份",
+    )
+    maintenance.add_argument(
+        "--restore-latest-backup",
+        action="store_true",
+        help="隔离当前数据库并恢复最近一个有效备份",
+    )
     parser.add_argument("--windowed", action="store_true", help="显示普通标题栏，供界面调试使用")
     parser.add_argument(
         "--developer-mode",
@@ -66,7 +93,111 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="界面验收时仅加载正式像素库的待机和眨眼动作",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    selected_operations = sum(
+        bool(value)
+        for value in (
+            args.check,
+            args.release_check,
+            args.reset_config,
+            args.doctor,
+            args.backup_now,
+            args.restore_latest_backup,
+        )
+    )
+    if selected_operations > 1:
+        parser.error("检查、配置重置、诊断、备份和恢复操作不能同时执行")
+    return args
+
+
+def _print_json(payload: dict[str, object]) -> None:
+    output = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
+    if sys.stdout is not None:
+        print(output)
+        return
+    # PyInstaller uses a windowed executable, so maintenance commands have no
+    # console stream. Keep them observable instead of silently succeeding.
+    import tkinter as tk
+    from tkinter import messagebox
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        title = str(payload.get("application") or payload.get("operation") or "LIFE-Mind")
+        dialog_output = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+        if payload.get("ok") is False:
+            messagebox.showerror(title, dialog_output, parent=root)
+        else:
+            messagebox.showinfo(title, dialog_output, parent=root)
+    finally:
+        root.destroy()
+
+
+def _doctor_payload(database_path: Path, asset_path: Path) -> tuple[dict[str, object], bool]:
+    report = inspect_database(database_path, full=True)
+    backups = valid_backups(database_path)
+    animation: dict[str, object]
+    if (
+        asset_path.resolve() == DEMO_ANIMATION_DIR.resolve()
+        and not (asset_path / "manifest.json").is_file()
+    ):
+        animation = {
+            "healthy": True,
+            "status": "will_generate_on_first_start",
+            "style": "refined-pixel-art",
+            "clips": 0,
+            "frames": 0,
+        }
+    else:
+        try:
+            asset_report = animation_report(asset_path)
+            animation = {
+                "healthy": True,
+                "status": "ok",
+                "style": asset_report["style"],
+                "clips": asset_report["clips"],
+                "frames": asset_report["frames"],
+            }
+        except (OSError, TypeError, ValueError) as error:
+            animation = {
+                "healthy": False,
+                "status": "error",
+                "error_type": type(error).__name__,
+            }
+    database_ok = report.healthy or report.status in {"missing", "legacy"}
+    healthy = database_ok and bool(animation["healthy"])
+    payload = {
+        "ok": healthy,
+        "application": "LIFE-Mind",
+        "version": __version__,
+        "runtime": {
+            "platform": platform.system().casefold(),
+            "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+            "frozen": bool(getattr(sys, "frozen", False)),
+        },
+        "database": report.public_dict(),
+        "backups": {
+            "valid_count": len(backups),
+            "restore_available": bool(backups),
+        },
+        "animation": animation,
+        "privacy": "No paths, memory text, dialogue, API keys, or model endpoints included.",
+    }
+    return payload, healthy
+
+
+def _backup_database(database_path: Path) -> Path:
+    report = inspect_database(database_path, full=True)
+    if not report.exists:
+        raise DatabaseReliabilityError("数据库尚未创建，没有可备份的数据")
+    if not report.healthy and report.status != "legacy":
+        raise DatabaseReliabilityError(f"数据库未通过完整性检查：{report.status}")
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("PRAGMA busy_timeout=5000")
+        return create_atomic_backup(connection, database_path)
+    finally:
+        connection.close()
 
 
 def main() -> int:
@@ -75,6 +206,48 @@ def main() -> int:
         args.config_path.unlink()
 
     asset = args.asset
+    database_path = Path(args.db_path) if args.db_path is not None else DEFAULT_DB_PATH
+    if args.doctor:
+        payload, healthy = _doctor_payload(database_path, asset)
+        _print_json(payload)
+        return 0 if healthy else 1
+    if args.backup_now:
+        try:
+            backup = _backup_database(database_path)
+        except (OSError, sqlite3.Error, DatabaseReliabilityError) as error:
+            _print_json(
+                {
+                    "ok": False,
+                    "operation": "backup",
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                }
+            )
+            return 1
+        _print_json({"ok": True, "operation": "backup", "backup_file": backup.name})
+        return 0
+    if args.restore_latest_backup:
+        try:
+            restored, quarantine = restore_latest_backup(database_path)
+        except (OSError, sqlite3.Error, DatabaseReliabilityError) as error:
+            _print_json(
+                {
+                    "ok": False,
+                    "operation": "restore",
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                }
+            )
+            return 1
+        _print_json(
+            {
+                "ok": True,
+                "operation": "restore",
+                "restored_backup": restored.name,
+                "previous_database_quarantined": quarantine is not None,
+            }
+        )
+        return 0
     if asset.resolve() == DEMO_ANIMATION_DIR.resolve() and not (asset / "manifest.json").is_file():
         ensure_demo_character(asset)
     if args.check or args.release_check:

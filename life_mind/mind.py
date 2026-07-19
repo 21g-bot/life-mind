@@ -21,6 +21,14 @@ from life_mind.ai import (
     guard_model_expression,
 )
 from life_mind.behavior import classify_dialogue_cue
+from life_mind.database import (
+    CURRENT_SCHEMA_VERSION,
+    DatabaseRecoveryResult,
+    backup_directory,
+    create_atomic_backup,
+    ensure_database_available,
+    migrate_database,
+)
 from life_mind.domain import EventType, GrowthStage, MindEvent, PrivacyLevel, to_plain
 from life_mind.growth_visibility import derive_visible_growth
 from life_mind.integration import MindEventBridge, new_event_id, trace_action_clip
@@ -153,17 +161,53 @@ class MindEngine:
         ai_responder: AIResponder | None = None,
         *,
         character_name: str = "桌宠",
+        auto_backup: bool | None = None,
+        backup_dir: Path | None = None,
+        auto_recover: bool = True,
     ) -> None:
         self.path = Path(path)
         self.character_name = character_name.strip() or "桌宠"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.backup_dir = (
+            Path(backup_dir) if backup_dir is not None else backup_directory(self.path)
+        )
+        self.auto_backup = (
+            self.path.resolve() == DEFAULT_DB_PATH.resolve()
+            if auto_backup is None
+            else bool(auto_backup)
+        )
+        self.last_backup_path: Path | None = None
+        self.last_backup_error = ""
+        self._closed = False
+        self.startup_recovery = (
+            ensure_database_available(self.path, directory=self.backup_dir)
+            if auto_recover
+            else DatabaseRecoveryResult("unchecked", "启动恢复检查已显式关闭。")
+        )
+        existed_before_open = self.path.is_file()
         self.connection = sqlite3.connect(self.path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.ai_responder = ai_responder
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self._create_schema()
+        try:
+            self.connection.execute("PRAGMA journal_mode=WAL")
+            self.connection.execute("PRAGMA foreign_keys=ON")
+            self.connection.execute("PRAGMA busy_timeout=5000")
+            previous_schema = int(
+                self.connection.execute("PRAGMA user_version").fetchone()[0]
+            )
+            if (
+                self.auto_backup
+                and existed_before_open
+                and previous_schema < CURRENT_SCHEMA_VERSION
+            ):
+                self.last_backup_path = create_atomic_backup(
+                    self.connection, self.path, directory=self.backup_dir
+                )
+            migrate_database(self.connection, now=utc_now)
+        except BaseException:
+            self.connection.close()
+            raise
         absence_hours = self._recover_after_absence()
         legacy = self.state()
         self.runtime = PersistentMindRuntime(
@@ -185,154 +229,6 @@ class MindEngine:
                 )
             )
         self._sync_runtime_state()
-        self.connection.commit()
-
-    def _ensure_column(self, table: str, column: str, definition: str) -> None:
-        columns = {
-            str(row["name"])
-            for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-        if column not in columns:
-            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-
-    def _create_schema(self) -> None:
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                memory_key TEXT NOT NULL UNIQUE,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                importance REAL NOT NULL,
-                source TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS state (
-                state_key TEXT PRIMARY KEY,
-                value_json TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        self._ensure_column("memories", "privacy", "TEXT NOT NULL DEFAULT 'private'")
-        self._ensure_column(
-            "memories",
-            "allowed_uses_json",
-            "TEXT NOT NULL DEFAULT '[\"recall\",\"model_context\",\"room_display\",\"export\"]'",
-        )
-        self._ensure_column("memories", "review_required", "INTEGER NOT NULL DEFAULT 0")
-        self._ensure_column("memories", "deleted_at", "TEXT")
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS source_permissions (
-                source_key TEXT PRIMARY KEY,
-                level INTEGER NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 0,
-                description TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS memory_search_index (
-                memory_id INTEGER PRIMARY KEY,
-                search_text TEXT NOT NULL,
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS memory_dependencies (
-                memory_id INTEGER NOT NULL,
-                source_memory_id INTEGER NOT NULL,
-                PRIMARY KEY(memory_id, source_memory_id),
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE,
-                FOREIGN KEY(source_memory_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_memory_dependencies_source
-                ON memory_dependencies(source_memory_id);
-            CREATE TABLE IF NOT EXISTS memory_event_links (
-                memory_id INTEGER NOT NULL,
-                event_id INTEGER NOT NULL,
-                PRIMARY KEY(memory_id, event_id),
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE,
-                FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS memory_mind_event_links (
-                memory_id INTEGER NOT NULL,
-                mind_event_id TEXT NOT NULL,
-                PRIMARY KEY(memory_id, mind_event_id),
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS room_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'open',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS daily_journal (
-                day TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                valid INTEGER NOT NULL DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS journal_memory_links (
-                day TEXT NOT NULL,
-                memory_id INTEGER NOT NULL,
-                PRIMARY KEY(day, memory_id),
-                FOREIGN KEY(day) REFERENCES daily_journal(day) ON DELETE CASCADE,
-                FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-            """
-        )
-        self._ensure_column("daily_journal", "importance", "REAL NOT NULL DEFAULT 0.0")
-        self._ensure_column("daily_journal", "public_content", "TEXT NOT NULL DEFAULT ''")
-        permission_defaults = {
-            "user_input": (0, 1, "用户主动输入"),
-            "ai_interpretation": (0, 1, "由已授权本地记忆推导的 AI 解释"),
-            "ai_reflection": (0, 1, "由已授权证据生成的本地反思"),
-            "validated_reflection": (0, 1, "通过规则验证的角色反思"),
-            "manual_import": (1, 0, "用户手动选择导入的文本或文件"),
-            "app_status": (2, 0, "明确开启的应用状态"),
-        }
-        now = utc_now()
-        for source_key, (level, enabled, description) in permission_defaults.items():
-            self.connection.execute(
-                """
-                INSERT OR IGNORE INTO source_permissions(
-                    source_key, level, enabled, description, updated_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (source_key, level, enabled, description, now),
-            )
-        self.connection.execute(
-            """
-            INSERT OR REPLACE INTO memory_search_index(memory_id, search_text)
-            SELECT id, lower(memory_key || ' ' || category || ' ' || content)
-            FROM memories WHERE active=1
-            """
-        )
-        defaults = {
-            "energy": 0.78,
-            "mood": 0.68,
-            "trust": 0.55,
-            "interaction_count": 0,
-            "last_seen": utc_now(),
-            "dominant_emotion": "calm",
-            "emotion_cause": "启动后保持平静",
-            "offline_summary": "这是本次启动后的第一段安静时光。",
-            "room_locked": False,
-        }
-        for key, value in defaults.items():
-            self.connection.execute(
-                "INSERT OR IGNORE INTO state(state_key, value_json, updated_at) VALUES (?, ?, ?)",
-                (key, json.dumps(value, ensure_ascii=False), utc_now()),
-            )
         self.connection.commit()
 
     def _get_state_value(self, key: str):
@@ -1636,10 +1532,32 @@ class MindEngine:
         return to_plain(trace)
 
     @synchronized
+    def backup_now(self) -> Path:
+        if self._closed:
+            raise RuntimeError("数据库已经关闭")
+        self.connection.commit()
+        self.last_backup_path = create_atomic_backup(
+            self.connection, self.path, directory=self.backup_dir
+        )
+        self.last_backup_error = ""
+        return self.last_backup_path
+
+    @synchronized
     def close(self) -> None:
+        if self._closed:
+            return
         self._set_state_value("last_seen", utc_now())
         self.connection.commit()
+        if self.auto_backup:
+            try:
+                self.last_backup_path = create_atomic_backup(
+                    self.connection, self.path, directory=self.backup_dir
+                )
+                self.last_backup_error = ""
+            except (OSError, sqlite3.Error, RuntimeError) as error:
+                self.last_backup_error = f"{type(error).__name__}: {error}"
         self.connection.close()
+        self._closed = True
 
 
 __all__ = (

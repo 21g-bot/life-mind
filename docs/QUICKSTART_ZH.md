@@ -158,10 +158,26 @@ setx LIFE_MIND_NAME "我的桌宠"
 %LOCALAPPDATA%\LIFE-Mind\
 ├── life-mind.db
 ├── desktop-pet.json
-└── ai-config.json
+├── ai-config.json
+├── backups\       # 最多保留 7 个经过完整性检查的数据库快照
+└── recovery\      # 损坏或恢复前的数据库副本，不会自动上传
 ```
 
 这里包含聊天记忆、成长事件、窗口位置和 AI 设置，不在仓库目录内。备份项目源码时不要顺手复制这个目录；公开问题截图前也应检查是否包含真实对话。
+
+正常退出会自动备份；也可以右键桌宠选择“备份本地数据”。需要排查或手动恢复时，在项目目录运行：
+
+```powershell
+python -B run_pet.py --doctor
+python -B run_pet.py --backup-now
+python -B run_pet.py --restore-latest-backup
+```
+
+Windows 便携版把 `python -B run_pet.py` 换成 `.\LIFE-Mind.exe`；维护结果会显示在系统对话框中。
+
+第一条只输出脱敏健康状态，适合复制到 GitHub Issue；第二条立即创建一致性快照；第三条会先把
+当前数据库移到 `recovery\`，再恢复最近一个通过完整性检查的备份。不要在桌宠仍运行时执行手动
+恢复。完整恢复规则见[数据可靠性与恢复](DATA_RELIABILITY.md)。
 
 项目中的以下目录同样默认不上传：
 
