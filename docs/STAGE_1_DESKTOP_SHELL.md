@@ -32,6 +32,9 @@ py -m pip install --target .deps\python -r requirements.txt
 py -B tools\run_desktop_soak.py --hours 8 --sample-seconds 60
 ```
 
+Windows 监控线程会在采样期间请求系统保持唤醒，但允许屏幕按原计划关闭；测试结束或异常退出时
+立即撤销请求，不会永久修改当前电源计划。合盖、关机、重启和系统强制睡眠仍会中断测试。
+
 默认报告写入 `tmp/desktop-soak-report.json`。运行期间每次采样都会原子更新
 `tmp/desktop-soak-status.json`，其中包含状态、桌宠 PID、已运行秒数、采样数和最新资源值；
 因此长时命令即使没有持续打印终端输出，也可以区分“仍在运行”和“已经中断”。当前阈值为：瞬时峰值不高于 320 MiB、

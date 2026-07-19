@@ -8,6 +8,7 @@ import json
 import math
 import os
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -78,6 +79,11 @@ def sample_process(pid: int, *, elapsed_seconds: float = 0.0) -> ResourceSample:
     if not handle:
         raise ProcessLookupError(f"无法读取进程 {pid}")
     try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            raise OSError(ctypes.get_last_error(), "GetExitCodeProcess 失败")
+        if int(exit_code.value) != 259:  # STILL_ACTIVE
+            raise ProcessLookupError(f"进程 {pid} 已经退出")
         memory = _ProcessMemoryCounters()
         memory.cb = ctypes.sizeof(memory)
         if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(memory), memory.cb):
@@ -103,6 +109,27 @@ def sample_process(pid: int, *, elapsed_seconds: float = 0.0) -> ResourceSample:
         )
     finally:
         kernel32.CloseHandle(handle)
+
+
+@contextmanager
+def prevent_system_sleep():
+    """Keep Windows awake for a monitor run without changing its power plan."""
+
+    if os.name != "nt":
+        yield False
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    set_thread_execution_state = kernel32.SetThreadExecutionState
+    set_thread_execution_state.argtypes = (wintypes.DWORD,)
+    set_thread_execution_state.restype = wintypes.DWORD
+    es_continuous = 0x80000000
+    es_system_required = 0x00000001
+    if not set_thread_execution_state(es_continuous | es_system_required):
+        raise OSError(ctypes.get_last_error(), "无法阻止系统在稳定性测试期间睡眠")
+    try:
+        yield True
+    finally:
+        set_thread_execution_state(es_continuous)
 
 
 def summarize_samples(
@@ -168,17 +195,20 @@ def monitor_process(
     thresholds: SoakThresholds = SoakThresholds(),
     on_sample: Callable[[ResourceSample, int], None] | None = None,
 ) -> dict[str, object]:
-    started = time.monotonic()
-    samples: list[ResourceSample] = []
-    while True:
-        elapsed = time.monotonic() - started
-        samples.append(sample_process(pid, elapsed_seconds=elapsed))
-        if on_sample is not None:
-            on_sample(samples[-1], len(samples))
-        if elapsed >= duration_seconds:
-            break
-        time.sleep(min(sample_seconds, max(0.05, duration_seconds - elapsed)))
-    return summarize_samples(samples, thresholds)
+    with prevent_system_sleep() as sleep_prevention_active:
+        started = time.monotonic()
+        samples: list[ResourceSample] = []
+        while True:
+            elapsed = time.monotonic() - started
+            samples.append(sample_process(pid, elapsed_seconds=elapsed))
+            if on_sample is not None:
+                on_sample(samples[-1], len(samples))
+            if elapsed >= duration_seconds:
+                break
+            time.sleep(min(sample_seconds, max(0.05, duration_seconds - elapsed)))
+        report = summarize_samples(samples, thresholds)
+        report["sleep_prevention_active"] = sleep_prevention_active
+        return report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -208,6 +238,7 @@ __all__ = (
     "ResourceSample",
     "SoakThresholds",
     "monitor_process",
+    "prevent_system_sleep",
     "sample_process",
     "summarize_samples",
 )
