@@ -148,7 +148,23 @@ python -B run_pet.py
 %LOCALAPPDATA%\LIFE-Mind\desktop-pet.json
 %LOCALAPPDATA%\LIFE-Mind\life-mind.db
 %LOCALAPPDATA%\LIFE-Mind\ai-config.json
+%LOCALAPPDATA%\LIFE-Mind\backups\
+%LOCALAPPDATA%\LIFE-Mind\recovery\
 ```
+
+正常退出时会生成经过 SQLite 完整性检查的原子快照，并只保留最近 7 份。启动发现数据库损坏时，
+程序先把原文件及 WAL 边车移入 `recovery\`，再尝试恢复最近有效备份；不会直接覆盖或删除损坏副本。
+右键桌宠可选择“备份本地数据”。维护者还可以运行：
+
+```powershell
+python -B run_pet.py --doctor
+python -B run_pet.py --backup-now
+python -B run_pet.py --restore-latest-backup
+```
+
+`--doctor` 输出可附在 Issue 中的脱敏报告，不包含本机绝对路径、对话、记忆正文、API 密钥或模型
+接口。恢复命令会先隔离当前数据库，因此恢复后仍保留反悔和人工检查的可能。详细设计见
+[数据可靠性与恢复](docs/DATA_RELIABILITY.md)。
 
 仓库还会忽略 `.cache/`、`.deps/`、`source/`、`tmp/`、`data/`、数据库、环境变量文件和
 私人角色目录。发布前检查器会再次扫描 Git 候选文件。
@@ -173,6 +189,7 @@ SQLite 事件与记忆             Pet Host 表现意图
 - `life_mind/presentation.py`：把黑箱心智压缩成跨渲染器可读的表现意图；
 - `life_mind/simulator.py`：无界面心智模拟与确定性回放；
 - `life_mind/persistence.py`：结构化事件和完整仲裁轨迹持久化；
+- `life_mind/database.py`：版本化迁移、完整性检查、原子备份、隔离恢复和脱敏诊断；
 - `life_mind/mind.py`：统一状态、长期记忆与 AI 表达适配；
 - `life_mind/behavior.py`：桌面动作状态机；
 - `life_mind/apps/`：桌宠窗口、黑箱个人房间和系统托盘。

@@ -18,7 +18,8 @@ python -B tools/check_public_release.py
 python -B tools/check_markdown_links.py
 ```
 
-Bug 报告请提供最小复现步骤、Python 版本和脱敏后的错误信息。不要上传 `%LOCALAPPDATA%\LIFE-Mind` 原始目录。
+Bug 报告请提供最小复现步骤、Python 版本和脱敏后的错误信息。可附上 `python -B run_pet.py --doctor`
+输出；不要上传 `%LOCALAPPDATA%\LIFE-Mind` 原始目录、数据库、备份或恢复副本。
 
 准备认领路线图工作时，请先阅读[实施任务](docs/IMPLEMENTATION_BACKLOG.md)，并使用 GitHub 的
 “实施任务”模板填写稳定任务编号、非目标、验收条件、安全影响和第三方许可证。参考项目的

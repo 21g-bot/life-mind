@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sqlite3
 import sys
 import threading
 import time
@@ -431,6 +432,8 @@ class NativeDesktopPet:
         self.root.overrideredirect(not windowed)
         self.root.attributes("-topmost", self.config.topmost)
         self.root.configure(bg=TRANSPARENT_KEY)
+        if self.mind.startup_recovery.status in {"restored", "reset"}:
+            self.root.after(200, self._show_startup_recovery_notice)
         try:
             self.root.wm_attributes("-transparentcolor", TRANSPARENT_KEY)
         except tk.TclError:
@@ -505,6 +508,7 @@ class NativeDesktopPet:
         self.menu.add_command(label="隐藏到系统托盘", command=self.hide_to_tray)
         self.menu.add_command(label="和她说句话…", command=self.open_chat)
         self.menu.add_command(label="管理关于我的本地记忆…", command=self.open_memory_manager)
+        self.menu.add_command(label="备份本地数据", command=self.backup_local_data)
         self.menu.add_command(label="打开她的房间…", command=self.open_private_room)
         self.menu.add_command(label="AI 模型设置…", command=self.open_ai_settings)
         if self.developer_mode:
@@ -1021,6 +1025,30 @@ class NativeDesktopPet:
             self.mind,
             character_name=self.character_name,
             on_close=cleared,
+        )
+
+    def _show_startup_recovery_notice(self) -> None:
+        recovery = self.mind.startup_recovery
+        messagebox.showwarning(
+            "本地数据恢复",
+            f"{recovery.notice}\n\n原文件没有被删除，已保留在隔离目录中。",
+            parent=self.root,
+        )
+
+    def backup_local_data(self) -> None:
+        try:
+            backup = self.mind.backup_now()
+        except (OSError, sqlite3.Error, RuntimeError) as error:
+            messagebox.showerror(
+                "备份失败",
+                f"本地数据没有被改动。\n\n{type(error).__name__}: {error}",
+                parent=self.root,
+            )
+            return
+        messagebox.showinfo(
+            "备份完成",
+            f"已生成经过完整性检查的本地快照：\n{backup.name}\n\n系统会保留最近 7 份。",
+            parent=self.root,
         )
 
     def _export_memories_from_dialog(self, parent: tk.Misc) -> None:
