@@ -40,6 +40,7 @@ class SoakThresholds:
     max_handle_growth: int = 64
     max_handle_growth_per_hour: float = 8.0
     max_single_core_cpu_percent: float = 35.0
+    max_normalized_cpu_percent: float = 2.0
     warmup_seconds: float = 300.0
     trend_min_duration_seconds: float = 3600.0
     min_steady_samples: int = 5
@@ -162,6 +163,7 @@ def summarize_samples(
     thresholds: SoakThresholds = SoakThresholds(),
     *,
     expected_duration_seconds: float | None = None,
+    logical_cpu_count: int | None = None,
 ) -> dict[str, object]:
     if not samples:
         raise ValueError("稳定性报告至少需要一个采样点")
@@ -235,6 +237,11 @@ def summarize_samples(
     single_core_cpu_percent = (
         cpu_seconds / observed_duration * 100.0 if observed_duration else 0.0
     )
+    resolved_cpu_count = max(
+        1,
+        int(logical_cpu_count if logical_cpu_count is not None else (os.cpu_count() or 1)),
+    )
+    normalized_cpu_percent = single_core_cpu_percent / resolved_cpu_count
     growth_checks_applied = (
         warmup_applied or observed_duration >= thresholds.warmup_seconds
     )
@@ -265,8 +272,11 @@ def summarize_samples(
             not trend_applied
             or handle_growth_per_hour <= thresholds.max_handle_growth_per_hour
         ),
-        "average_cpu_within_limit": (
+        "single_core_cpu_within_hard_limit": (
             single_core_cpu_percent <= thresholds.max_single_core_cpu_percent
+        ),
+        "average_cpu_within_limit": (
+            normalized_cpu_percent <= thresholds.max_normalized_cpu_percent
         ),
     }
     return {
@@ -300,7 +310,9 @@ def summarize_samples(
         "growth_checks_applied": growth_checks_applied,
         "trend_checks_applied": trend_applied,
         "cpu_seconds": cpu_seconds,
+        "logical_cpu_count": resolved_cpu_count,
         "single_core_cpu_percent": single_core_cpu_percent,
+        "normalized_cpu_percent": normalized_cpu_percent,
         "thresholds": asdict(thresholds),
         "checks": checks,
         "samples": [asdict(item) for item in samples],

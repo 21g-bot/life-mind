@@ -65,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     report = summarize_samples(
         samples,
         expected_duration_seconds=expected_duration,
+        logical_cpu_count=(
+            int(payload["logical_cpu_count"])
+            if isinstance(payload.get("logical_cpu_count"), int)
+            else None
+        ),
     )
     report["reassessment"] = {
         "policy_version": SOAK_POLICY_VERSION,
