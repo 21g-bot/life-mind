@@ -111,6 +111,20 @@ class SoakMonitorTests(unittest.TestCase):
         report = summarize_samples(samples)
 
         self.assertEqual(report["single_core_cpu_percent"], 50.0)
+        self.assertFalse(report["checks"]["single_core_cpu_within_hard_limit"])
+        self.assertFalse(report["passed"])
+
+    def test_cpu_budget_is_normalized_across_logical_processors(self) -> None:
+        samples = [
+            ResourceSample(0.0, 180 * MIB, 220 * MIB, 280, 0.0),
+            ResourceSample(600.0, 182 * MIB, 220 * MIB, 281, 60.0),
+        ]
+
+        report = summarize_samples(samples, logical_cpu_count=4)
+
+        self.assertEqual(report["single_core_cpu_percent"], 10.0)
+        self.assertEqual(report["normalized_cpu_percent"], 2.5)
+        self.assertTrue(report["checks"]["single_core_cpu_within_hard_limit"])
         self.assertFalse(report["checks"]["average_cpu_within_limit"])
         self.assertFalse(report["passed"])
 
